@@ -198,11 +198,11 @@ public:
 #ifdef NEED_DTOSTRF
 #include <stdio.h>
 extern "C" char *dtostrf(double val, signed char width, unsigned char prec, char *out) {
-    char fmt[20];
-    snprintf(fmt, 20, "%%%d.%df", width, prec);
-    snprintf(out, 100, fmt, val); //yeah, we don't know size of out here, and sprintf() generates deprecation warnings
-    return out;
-  }
+  char fmt[20];
+  snprintf(fmt, 20, "%%%d.%df", width, prec);
+  snprintf(out, 100, fmt, val);
+  return out;
+}
 #endif
 
 #ifdef NEED_DTOSTRE
@@ -211,14 +211,14 @@ extern "C" char *dtostrf(double val, signed char width, unsigned char prec, char
 #define DTOSTR_PLUS_SIGN 0x02 /* put '+' rather than ' ' */
 #define DTOSTR_UPPERCASE 0x04 /* put 'E' rather 'e' */
 extern "C" char *dtostre(double val, char *out, unsigned char prec, unsigned char flags) {
-    char fmt[20];
-    char sfx = (flags & DTOSTR_UPPERCASE) ? 'E' : 'e';
-    char pfx = (flags & DTOSTR_PLUS_SIGN) ? '+' : (flags & DTOSTR_ALWAYS_SIGN) ? ' ' : 0;
-    if (pfx) snprintf(fmt, 20, "%%%c.%d%c", pfx, prec, sfx);
-    else snprintf(fmt, 20, "%%.%d%c", prec, sfx);
-    snprintf(out, 100, fmt, val); //yeah, we don't know size of out here, and sprintf() generates deprecation warnings
-    return out;
-  }
+  char fmt[20];
+  char sfx = (flags & DTOSTR_UPPERCASE) ? 'E' : 'e';
+  char pfx = (flags & DTOSTR_PLUS_SIGN) ? '+' : (flags & DTOSTR_ALWAYS_SIGN) ? ' ' : 0;
+  if (pfx) snprintf(fmt, 20, "%%%c.%d%c", pfx, prec, sfx);
+  else snprintf(fmt, 20, "%%.%d%c", prec, sfx);
+  snprintf(out, 100, fmt, val);
+  return out;
+}
 #endif
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__

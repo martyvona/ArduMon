@@ -427,10 +427,11 @@ public:
   bool recv(uint64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, false, 8, hex); }
   bool recv( int64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, true,  8, hex); }
 
-  //binary mode: receive a 4 byte float
-  //text mode: receive a decimal or scientific float
-  //(on AVR double is synonymous with float by default, both are 4 bytes)
+  //binary mode: receive float or double
+  //text mode: receive a decimal or scientific float or double
+  //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
   bool recv(float *v) { return parse(next_token(4), v); }
+  bool recv(double *v) { return parse(next_token(sizeof(double)), v); }
 
   //sends carriage return and line feed in text mode; noop in binary mode
   bool send_CRLF() {
@@ -495,13 +496,17 @@ public:
   bool send_raw(const uint64_t v, const bool hex = false) { return write<uint64_t>(&v, false, 8, hex); }
   bool send_raw(const  int64_t v, const bool hex = false) { return write<uint64_t>(&v, true,  8, hex); }
 
-  //binary mode: send 4 byte float
-  //text mode: send space separator if necessary, then send float as decimal or scientific
+  //binary mode: send float or double
+  //text mode: send space separator if necessary, then send float or double as decimal or scientific
+  //on AVR both double and float are 4 bytes; on other platforms double may be 8 bytes
   bool send(const float v) { return send_txt_sep() && send_raw(v); }
+  bool send(const double v) { return send_txt_sep() && send_raw(v); }
 
-  //binary mode: send 4 byte float
-  //text mode: send float as decimal or scientific
+  //binary mode: send float or double bytes
+  //text mode: send float or double as decimal or scientific string
+  //on AVR both double and float are 4 bytes; on other platforms double may be 8 bytes
   bool send_raw(const float v) { return write(v); }
+  bool send_raw(const double v) { return write(v); }
 
   //"\x1B" is ASCII 27 which is ESC
   const char *VT100_INIT PROGMEM = "\x1B\x63";
@@ -817,17 +822,17 @@ private:
 
   //binary mode: copy a 4 byte float from v to dest
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float at dest
-  bool parse(const uint8_t *v, float *dest) {
+  template <typename T> bool parse(const uint8_t *v, T *dest) {
     if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode) {
       for (uint8_t i = 0; i < 4; i++) reinterpret_cast<uint8_t*>(dest)[i] = v[i];
       return true;
     }
-    const char *s = reinterpret_cast<const char *>(v);
+    const char *s = reinterpret_cast<const char*>(v);
     char *e;
     double d = strtod(s, &e);
-    *dest = static_cast<float>(d);
     if (s == e) return fail(Error::BAD_ARG);
+    *dest = static_cast<T>(d);
     return true;
   }
 
@@ -909,32 +914,48 @@ private:
     if (!send_read_ptr) send_read_ptr = write_start; //enable sending
   }
 
-  //binary mode: append 4 byte float v to send buffer
-  //text mode: append 4 byte float as decimal or scientific number in send buffer
-  bool write(const float v) {
+  //binary mode: append float or double v to send buffer
+  //text mode: append float or double as decimal or scientific number in send buffer
+  //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
+  template <typename T> //supports float and double
+  bool write(const T v) {
+    constexpr uint8_t nb = sizeof(T); //4 or 8
     if (binary_mode) {
-      if (!check_write(4)) return fail(SEND_OVERFLOW);
-      for (uint8_t i = 0; i < 4; i++) put(*(reinterpret_cast<const uint8_t*>(&v) + i));
+      if (!check_write(nb)) return fail(Error::SEND_OVERFLOW);
+      for (uint8_t i = 0; i < nb; i++) put(*(reinterpret_cast<const uint8_t*>(&v) + i));
       return true;
     }
-    uint8_t exp = (*(reinterpret_cast<const uint16_t*>(&v) + 1) >> 7) & 0xff;
-    //exp is "biased" so that the actual binary exponent is exp - 127, and exp = 0 and exp = 255 are special cases
-    //go scientific if exp is 0 (sub-normal) or 255 (nan or inf) or if it's less than -4 or more than 20 (2^20 ~= 10^6)
-    bool scientific = !(exp == 0 || exp == 255) && (exp < (127 - 4) || exp > (127 + 20));
+    constexpr uint8_t sig_dig = nb == 4 ? 8 : 16;
+    constexpr uint8_t exp_dig = nb == 4 ? 3 : 4;
+    constexpr uint8_t exp_bits = nb == 4 ? 8 : 11;
+    constexpr uint16_t exp_bias = nb == 4 ? 127 : 1023;
+    constexpr uint16_t exp_mask = (1 << exp_bits) - 1;
+    uint16_t exp = (*(reinterpret_cast<const uint16_t*>(&v) + (nb / 2 - 1)) >> (16 - (exp_bits + 1))) & exp_mask;
+    //go scientific if exp is 0 (sub-normal) or exp_mask (nan or inf) or if it's < -4 or > 20 (2^20 ~= 10^6)
+    bool scientific = !(exp == 0 || exp == exp_mask) && (exp < (exp_bias - 4) || exp > (exp_bias + 20));
     if (scientific) {
-      char buf[1 + 1 + 1 + 6 + 1 + 1 + 2 + 1]; //sign + d + . + dddddd + E + sign + dd + \0
-      for (size_t i = 0; i < sizeof(buf); i++) buf[i] = '\0';
-      dtostre(v, buf, 6, DTOSTR_UPPERCASE);
+      char buf[1 + 1 + 1 + (sig_dig-1) + 1 + 1 + exp_dig + 1]; //sign d . d{sig_dig-1} E sign d{exp_dig} \0
+      for (uint8_t i = 0; i < sizeof(buf); i++) buf[i] = 0;
+      dtostre(v, buf, sig_dig - 1, DTOSTR_UPPERCASE);
+      uint8_t j = strchr(buf, 'E') - buf;
+      uint8_t k = trim_trailing(buf, j - 1);
+      while (buf[j]) buf[++k] = buf[j++];
+      buf[++k] = 0;
       return write(buf, false, -1);
     } else {
-      char buf[1 + 8 + 1 + 9 + 1]; //sign + dddddddd + . + ddddddddd + \0
-      for (size_t i = 0; i < sizeof(buf); i++) buf[i] = '\0';
-      dtostrf(v, 0, 9, buf);
-      for (size_t i = sizeof(buf) - 1; i > 0 && (buf[i - 1] != '.') && (buf[i] == '\0' || buf[i] == '0'); i--) {
-        buf[i] = '\0'; //trim trailing zeros
-      }
-      return write(buf , false, -1);
+      char buf[1 + 1 + 1 + 3 + sig_dig + 1]; //sign d{7} . d{sig_dig - 7} \0 | sign 0 . 000 d{sig_dig} \0
+      for (uint8_t i = 0; i < sizeof(buf); i++) buf[i] = 0;
+      dtostrf(v, -(sizeof(buf) - 1), sig_dig - 1, buf); //negative width = left align
+      trim_trailing(buf, sizeof(buf) - 1);
+      return write(buf, false, -1);
     }
+  }
+
+  //trim trailing whitespace and zeros backwards from start index; returns next un-trimmed index
+  uint8_t trim_trailing(char *s, const uint8_t start) {
+    uint8_t i = start;
+    while (i >= 0 && (s[i - 1] != '.') && (s[i] == 0 || s[i] == '0' || s[i] == ' ')) s[i--] = '\0';
+    return i;
   }
 
   //binary mode: append char to send buffer

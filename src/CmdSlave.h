@@ -233,7 +233,7 @@ public:
 
   CmdSlave(Stream *s, const bool binary = false) : stream(s) { memset(cmds, 0, sizeof(cmds)); set_binary_mode(binary); }
 
-  enum Error {
+  enum class Error : uint8_t {
     NONE,
     CMD_OVERFLOW,   //already have max_num_cmds or duplicate command
     RECV_OVERFLOW,  //received command longer than recv_buf_sz
@@ -243,11 +243,12 @@ public:
     BAD_CMD,        //received command unknown
     BAD_ARG,        //received data failed to parse as expected type
     BAD_HANDLER,    //handler failed
-    BAD_PACKET      //invalid received checksum in binary mode
+    BAD_PACKET,     //invalid received checksum in binary mode
+    BAD_CALL        //invalid argument in API call
   };
 
   Error get_err() { return err; }
-  void clear_err() { err = NONE; }
+  void clear_err() { err = Error::NONE; }
 
   //handler_t is a pointer to a function taking a pointer to a CmdSlave object and returning success (true)/fail (false)
   //if the return is false then the handler should not have called end_cmd()
@@ -274,7 +275,7 @@ public:
     if (binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
-    err = NONE;
+    err = Error::NONE;
     recv_ptr = recv_buf;
     send_read_ptr = 0;
     if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
@@ -305,11 +306,11 @@ public:
 
     bool ok = true;
 
-    if (receiving && recv_timeout_ms > 0 && millis() > recv_deadline) { ok = false; err = RECV_TIMEOUT; }
+    if (receiving && recv_timeout_ms > 0 && millis() > recv_deadline) { ok = false; err = Error::RECV_TIMEOUT; }
 
     while (ok && !handling && stream->available()) { //pump receive buffer
 
-      if (recv_ptr - recv_buf >= recv_buf_sz) { err = RECV_OVERFLOW; ok = false; }
+      if (recv_ptr - recv_buf >= recv_buf_sz) { err = Error::RECV_OVERFLOW; ok = false; }
       else {
 
         *recv_ptr = static_cast<uint8_t>(stream->read());
@@ -322,11 +323,11 @@ public:
         if (binary_mode) {
 
           if (recv_ptr == recv_buf) { //received length
-            if (*recv_ptr < 3) { err = BAD_CMD; receiving = ok = false; }
+            if (*recv_ptr < 3) { err = Error::BAD_CMD; receiving = ok = false; }
           } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
             receiving = false; handling = true;
             ok = handle_bin_command();
-            if (!ok && err == NONE) err = BAD_HANDLER;
+            if (!ok && err == Error::NONE) err = Error::BAD_HANDLER;
             break;
           } else ++recv_ptr;
 
@@ -341,7 +342,7 @@ public:
           //though if it does, it can deal with the separate "\r\n" echo for both '\r' and '\n'
           receiving = false; handling = true;
           ok = handle_txt_command();
-          if (!ok && err == NONE) err = BAD_HANDLER;
+          if (!ok && err == Error::NONE) err = Error::BAD_HANDLER;
           break;
         } else if (*recv_ptr == '\b' && recv_ptr > recv_buf) { //text mode backspace
           if (txt_echo) { vt100_move_rel(1, VT100_LEFT); send_raw(' '); vt100_move_rel(1, VT100_LEFT); }
@@ -380,7 +381,7 @@ public:
   bool send_packet() {
     if (!binary_mode) return true;
     uint16_t len = send_write_ptr - send_buf;
-    if (len > 254 || len >= send_buf_sz) { err = SEND_OVERFLOW; return false; } //need 1 byte for checksum
+    if (len > 254 || len >= send_buf_sz) { err = Error::SEND_OVERFLOW; return false; } //need 1 byte for checksum
     if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length
       int8_t sum = 0;
       for (uint8_t i = 0; i < len; i++) sum += send_buf[i];
@@ -398,23 +399,20 @@ public:
   bool sending_packet() { return binary_mode && send_write_ptr = 0; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
-  bool recv() {
-    if (!next_token(1)) { err = RECV_UNDERFLOW; return false; }
-    return true;
-  }
+  bool recv() { return next_token(1) != 0 || fail(Error::RECV_UNDERFLOW); }
 
   //receive a character
   bool recv(char *v) {
     const uint8_t *ptr = next_token(1);
     if (ptr) { *v = static_cast<char>(*ptr); return true; }
-    else return fail(RECV_UNDERFLOW);
+    else return fail(Error::RECV_UNDERFLOW);
   }
 
   //receive a string
   bool recv(const char* *v) {
     const char *ptr = next_token(0);
     if (ptr) { *v = ptr; return true; }
-    else return fail(RECV_UNDERFLOW);
+    else return fail(Error::RECV_UNDERFLOW);
   }
 
   //binary mode: receive an integer of the indicated size
@@ -549,7 +547,7 @@ private:
 
   Stream *stream; //underlying serial stream
 
-  Error err = NONE; //most recent error
+  Error err = Error::NONE; //most recent error
 
   bool binary_mode = false; //text mode if false
 
@@ -600,9 +598,9 @@ private:
   bool fail(Error e) { err = e; return false; }
 
   bool add_cmd(const handler_t handler, const char *name, uint8_t code, const char *description, const bool progmem) {
-    if (n_cmds == max_num_cmds) return fail(CMD_OVERFLOW);
+    if (n_cmds == max_num_cmds) return fail(Error::CMD_OVERFLOW);
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if ((progmem && cmds[i].is_P(name)) || (!progmem && cmds[i].is(name))) return fail(CMD_OVERFLOW);
+      if ((progmem && cmds[i].is_P(name)) || (!progmem && cmds[i].is(name))) return fail(Error::CMD_OVERFLOW);
     }
     cmds[n_cmds++] = { handler, name, code, description, progmem };
     return true;
@@ -696,7 +694,7 @@ private:
   //if hex == true then always interpret as hex, else interpret as hex iff prefixed with 0x or 0X
   bool parse(const uint8_t *v, uint8_t *dest, const bool sgnd, const uint8_t num_bytes, bool hex) {
 
-    if (!v) return fail(RECV_UNDERFLOW);
+    if (!v) return fail(Error::RECV_UNDERFLOW);
 
     if (binary_mode) {
       for (uint8_t i = 0; i < num_bytes; i++) dest[i] = v[i];
@@ -711,14 +709,14 @@ private:
     }
 
     if (hex) {
-      const uint8_t *str = v;
-      for (uint8_t i = 0; *str; i++, str++) if (i >= 2 * num_bytes) return fail(RECV_OVERFLOW);
-      for (uint8_t i = 0; str >= v; i++) {
-        const char c = *--str; uint8_t p;
-        if (c >= '0' && c <= '9') p = c - '0';
-        else if (c >= 'A' && c <= 'F') p = 10 + c - 'A';
-        else if (c >= 'a' && c <= 'f') p = 10 + c - 'a';
-        else return fail(BAD_ARG);
+      const char *dig = reinterpret_cast<const char*>(v);
+      for (uint8_t i = 0; *dig; i++, dig++) if (i >= 2 * num_bytes) return fail(Error::RECV_OVERFLOW);
+      for (uint8_t i = 0; dig > reinterpret_cast<const char*>(v); i++) {
+        const char d = *--dig; uint8_t p;
+        if (d >= '0' && d <= '9') p = d - '0';
+        else if (d >= 'A' && d <= 'F') p = 10 + d - 'A';
+        else if (d >= 'a' && d <= 'f') p = 10 + d - 'a';
+        else return fail(Error::BAD_ARG);
         if ((i&1) == 0) dest[i/2] = p;
         else dest[i/2] |= p << 4;
       }
@@ -734,7 +732,7 @@ private:
   //binary mode: copy a 4 byte float from v to dest
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float at dest
   bool parse(const uint8_t *v, float *dest) {
-    if (!v) return fail(RECV_UNDERFLOW);
+    if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode) {
       for (uint8_t i = 0; i < 4; i++) reinterpret_cast<uint8_t*>(dest)[i] = v[i];
       return true;
@@ -742,8 +740,8 @@ private:
     const char *s = reinterpret_cast<const char *>(v);
     char *e;
     double d = strtod(s, &e);
-    if (s == e) return fail(BAD_ARG);
     *dest = static_cast<float>(d);
+    if (s == e) return fail(Error::BAD_ARG);
     return true;
   }
 
@@ -818,7 +816,7 @@ private:
 
     if (neg) buf[--i] = '-';
 
-    if (!check_write(len - i)) return fail(SEND_OVERFLOW);
+    if (!check_write(len - i)) return fail(Error::SEND_OVERFLOW);
     const uint8_t *write_start = send_write_ptr;
     while (i < len) put(buf[i++]);
     if (!send_read_ptr) send_read_ptr = write_start; //enable sending
@@ -856,13 +854,13 @@ private:
   //text mode: if cook quote and escape iff necessary, then append char to send buffer
   bool write(const char c, const bool cook = false) {
     if (binary_mode) {
-      if (!check_write(1)) return fail(SEND_OVERFLOW);
+      if (!check_write(1)) return fail(Error::SEND_OVERFLOW);
       put(c);
     } else {
       const char esc = cook ? escape(c) : 0;
       const bool quote = cook && (isspace(c) || esc);
       const uint8_t *write_start = send_write_ptr;
-      if (!check_write(1 + (esc ? 1 : 0) + (quote ? 2 : 0))) return fail(SEND_OVERFLOW);
+      if (!check_write(1 + (esc ? 1 : 0) + (quote ? 2 : 0))) return fail(Error::SEND_OVERFLOW);
       if (quote) put('\'');
       if (esc) { put('\\'); put(esc); } else put(c);
       if (quote) put('\'');
@@ -881,13 +879,13 @@ private:
     bool quote = false;
     uint16_t n = 0, n_esc = 0;
     while (len < 0 && v[n]) {
-      if (n == send_buf_sz) return fail(SEND_OVERFLOW);
+      if (n == send_buf_sz) return fail(Error::SEND_OVERFLOW);
       if (!binary_mode && cook && escape(v[n])) { ++n_esc; quote = true; }
       else if (!binary_mode && cook && isspace(v[n])) quote = true;
       ++n;
     }
 
-    if (!check_write((len > 0) ? len : (n + n_esc + (quote ? 2 : 0)))) return fail(SEND_OVERFLOW);
+    if (!check_write((len > 0) ? len : (n + n_esc + (quote ? 2 : 0)))) return fail(Error::SEND_OVERFLOW);
 
     const uint8_t *write_start = send_write_ptr;
 

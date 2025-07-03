@@ -492,8 +492,8 @@ public:
   bool send_raw(const  int16_t v, const bool hex = false) { return write(&v, true,  2, hex); }
   bool send_raw(const uint32_t v, const bool hex = false) { return write(&v, false, 4, hex); }
   bool send_raw(const  int32_t v, const bool hex = false) { return write(&v, true,  4, hex); }
-  bool send_raw(const uint64_t v, const bool hex = false) { return write(&v, false, 8, hex); }
-  bool send_raw(const  int64_t v, const bool hex = false) { return write(&v, true,  8, hex); }
+  bool send_raw(const uint64_t v, const bool hex = false) { return write<uint64_t>(&v, false, 8, hex); }
+  bool send_raw(const  int64_t v, const bool hex = false) { return write<uint64_t>(&v, true,  8, hex); }
 
   //binary mode: send 4 byte float
   //text mode: send space separator if necessary, then send float as decimal or scientific
@@ -832,11 +832,14 @@ private:
   }
 
   //binary mode: append num_bytes int to send buffer
-  //text mode: append num_bytes int as decimal or hexadecimal string in send buffer
+  //text mode: append num_bytes int starting at v as decimal or hexadecimal string in send buffer
+  template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool write(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const bool hex) {
 
+    if (num_bytes > sizeof(big_uint)) return fail(Error::BAD_CALL);
+
     if (binary_mode) {
-      if (!check_write(num_bytes)) return fail(SEND_OVERFLOW);
+      if (!check_write(num_bytes)) return fail(Error::SEND_OVERFLOW);
       for (uint8_t i = 0; i < num_bytes; i++) put(v[i]);
       return true;
     }
@@ -849,19 +852,26 @@ private:
       case 2: len += 5; break;  //2^16-1 = 65,535 (5 digits)
       case 4: len += 10; break; //2^32-1 = 4,294,967,295 (10 digits)
       case 8: len += 20; break; //2^64-1 = 18,446,744,073,709,551,615 (20 digits)
-      default: return fail(BAD_ARG);
     }
 
     //in most cases we flip negative v to positive num here
     //by inverting the bytes of v as we copy them to num and then adding one
-    //(if num_bytes < 8 we don't need to explicitly sign extend the high bytes because the flip of 0xff is 0)
-    //the one exception is if v is 0x80 00 00 00 00 00 00 00 = -(2^63) as int64_t = 2^63 as uint64_t
-    uint64_t num = 0;
-    bool flip = neg && !(num_bytes == 8 && v[7] == 0x80 && !v[6] && !v[5] && !v[4] && !v[3] && !v[2] && !v[1] && !v[0]);
+    //(if num_bytes < sizeof(big_uint) don't need to sign extend the high bytes because the flip of 0xff is 0)
+    //the one exception is if v is 0x80 00 .. 00 = -(2^(N-1)) as intN_t = 2^(N-1) as uintN_t
+    big_uint num = 0;
+    bool flip = neg;
+    if (flip && num_bytes == sizeof(big_uint)) {
+      if (v[sizeof(big_uint) - 1] == 0x80) {
+        bool rest_zero = true;
+        for (uint8_t i = 0; rest_zero && i < sizeof(big_uint) - 1; i++) rest_zero = rest_zero && v[i] == 0;
+        if (rest_zero) flip = false;
+      }
+    }
     for (uint8_t i = 0; i < num_bytes; i++) *(reinterpret_cast<uint8_t*>(&num) + i) = flip ? ~v[i] : v[i];
     if (flip) ++num;
 
-    char buf[22];
+    constexpr uint8_t buff_sz = sizeof(big_uint) == 4 ? (1 + 10 + 1) : (1 + 20 + 1);
+    char buf[buff_sz];
     uint8_t i = len - 1;
     buf[i] = '\0';
 
@@ -872,31 +882,22 @@ private:
         buf[--i] = to_hex(v[i] >> 4);
       }
     } else {
-
-      //works but uses a lot of 64 bit math
-      //while (num) {
-      //  uint64_t q = num / 10;
-      //  buf[--i] = '0' + (num - 10 * q);
-      //  num = q;
-      //}
-
-      uint16_t n16;
       while (num > 10000) {
-        uint64_t q = num / 10000;
+        big_uint q = num / 10000;
         uint16_t r = num - q * 10000;
         num = q;
         for (uint8_t j = 0; j < 5; j++) {
-          n16 = r / 10;
-          buf[--i] = '0' + (r - 10 * n16);
-          r = n16;
+          uint16_t qq = r / 10;
+          buf[--i] = '0' + (r - qq * 10);
+          r = qq;
         }
       }
-
-      n16 = num;
-      while (n16) {
-        uint16_t q = n16 / 10;
-        buf[--i] = '0' + (n16 - 10 * q);
-        n16 = q;
+      //if uint16_t is changed to big_uint then the next loop would be sufficient on its own
+      //but the loop above reduces the amount of 32 or 64 bit math overall
+      while (num) {
+        uint16_t q = num / 10;
+        buf[--i] = '0' + (num - q * 10);
+        num = q;
       }
     }
 

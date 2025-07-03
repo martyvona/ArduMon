@@ -85,7 +85,7 @@
  *    text mode returned data is sent incrementally.  There is no limit to the amount of data that can be sent in
  *    response to a command, but the send(...) APIs will block if the send buffer is full. Each sent value after the
  *    first will be prefixed by a space, unless the handler calls send_CRLF() which will replace the space.  Sent
- *    characters will be single quoted and backslash escaped iff they contain a quote or whitespace character. Sent
+ *    characters will be single quoted and backslash escaped if they contain a quote or whitespace character. Sent
  *    strings will be double quoted and backslash escaped if they contain a quote or whitespace character.  The
  *    send_raw() APIs can be used to avoid the space prefix, quote, and escape.
  * 10. The command handler must end with a call to end_cmd(), which will reset the command interpreter.
@@ -128,7 +128,7 @@
  * Multibyte quantities are read and written in little endian byte order in binary mode, which matches the endianness of
  * the architectures this library is intended to target.  (Compilation will intentionally fail on a big endian target.)
  *
- * Copyright 2024 Marsette A. Vona (martyvona@gmail.com)
+ * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
  * documentation files (the “Software”), to deal in the Software without restriction, including without limitation the
@@ -460,8 +460,7 @@ public:
   //text mode: send space separator if necessary, then send character with quote and escape iff nessary
   bool send(const char v) { return send_txt_sep() && write(v, true); }
 
-  //binary mode: send a single character (8 bit clean)
-  //text mode: send character with quote and escape iff nessary
+  //binary and text mode: send a single character (8 bit clean)
   bool send_raw(const char v) { return write(v); }
 
   //binary mode: append null terminated string to send buffer, including terminating null

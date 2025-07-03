@@ -424,8 +424,8 @@ public:
   bool recv( int16_t *v, const bool hex = false) { return parse(next_token(2), v, true,  2, hex); }
   bool recv(uint32_t *v, const bool hex = false) { return parse(next_token(4), v, false, 4, hex); }
   bool recv( int32_t *v, const bool hex = false) { return parse(next_token(4), v, true,  4, hex); }
-  bool recv(uint64_t *v, const bool hex = false) { return parse(next_token(8), v, false, 8, hex); }
-  bool recv( int64_t *v, const bool hex = false) { return parse(next_token(8), v, true,  8, hex); }
+  bool recv(uint64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, false, 8, hex); }
+  bool recv( int64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, true,  8, hex); }
 
   //binary mode: receive a 4 byte float
   //text mode: receive a decimal or scientific float
@@ -692,7 +692,11 @@ private:
   //binary mode: copy num_bytes int from v to dest
   //text mode: parse a null terminated decimal or hexadecimal int from v to num_bytes at dest
   //if hex == true then always interpret as hex, else interpret as hex iff prefixed with 0x or 0X
+  template <typename big_int = int32_t, //supports int32_t, int64_t
+            typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool parse(const uint8_t *v, uint8_t *dest, const bool sgnd, const uint8_t num_bytes, bool hex) {
+
+    if (num_bytes > sizeof(big_uint)) return fail(Error::BAD_CALL);
 
     if (!v) return fail(Error::RECV_UNDERFLOW);
 
@@ -720,12 +724,94 @@ private:
         if ((i&1) == 0) dest[i/2] = p;
         else dest[i/2] |= p << 4;
       }
-    } else if (sgnd) {
-      //TODO strtol() but 64 bit
-      return false;
     } else {
-      //TODO strtoul() but 64 bit
-      return false;
+
+      //strtol() and strtoul() are available but long int is only 32 bits on AVR
+      //TODO use strtol()/strtoul() iff num_bytes <= sizeof(long)
+
+      const int8_t sign = v[0] == '-' ? -1 : +1;
+      v++;
+
+      const bool neg = sign < 0;
+      if (neg && !sgnd) return fail(Error::BAD_ARG);
+
+      while (*v == '0') v++; //skip leading zeros
+
+      uint8_t max_digits, last_chunk;
+      switch (num_bytes) {
+        case 1: { max_digits = 3; last_chunk = 0; break; }
+        case 2: { max_digits = 5; last_chunk = 1; break; }
+        case 4: { max_digits = 10; last_chunk = 2; break; }
+        case 8: { max_digits = sgnd ? 19 : 20; last_chunk = 4; break; }
+      }
+
+      const char *dig = reinterpret_cast<const char*>(v);
+      for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::RECV_OVERFLOW);
+
+      //read digits from least to most significant in chunks of 4 at a time
+      constexpr uint8_t num_chunks = sizeof(big_uint) > 4 ? 5 : 3;
+      int16_t chunk[num_chunks];
+      for (uint8_t i = 0; i < num_chunks; i++) chunk[i] = 0;
+      for (uint8_t c = 0; c <= last_chunk && dig > reinterpret_cast<const char*>(v); c++) {
+        for (uint16_t place = 1; place <= 1000; place *= 10) {
+          if (--dig < reinterpret_cast<const char*>(v)) break; //no more digits to read
+          const char d = *dig;
+          if (d < '0' || d > '9') return fail(Error::BAD_ARG);
+          chunk[c] += (d - '0') * place;
+        }
+      }
+
+      for (uint8_t c = last_chunk; c >= 0; c--) {
+        int16_t max_chunk;
+        switch (num_bytes) {
+          case 1: {
+            //unsigned 0 to 255, signed -128 to 127
+            max_chunk = neg ? 128 : sgnd ? 127 : 255;
+            break;
+          }
+          case 2: {
+            //unsigned 0 to 6:5535, signed -3:2768 to 3:2767
+            if (c == 0) max_chunk = neg ? 2768 : sgnd ? 2767 : 5535;
+            else max_chunk = sgnd ? 3 : 6;
+            break;
+          }
+          case 4: {
+            //unsigned 0 to 42:9496:7295, signed -21:4748:3648 to 21:4748:3647
+            switch (c) {
+              case 0: max_chunk = neg ? 3648 : sgnd ? 3647 : 7295; break;
+              case 1: max_chunk = sgnd ? 4748 : 9496; break;
+              default: max_chunk = sgnd ? 21 : 42; break;
+            }
+            break;
+          }
+          case 8: {
+            //unsigned 0 to 1844:6744:0737:0955:1615
+            //signed -922:3372:0368:5477:5808 to 922:3372:0368:5477:5807
+            switch (c) {
+              case 0: max_chunk = neg ? 5808 : sgnd ? 5807 : 1615; break;
+              case 1: max_chunk = sgnd ? 5477 : 955; break;
+              case 2: max_chunk = sgnd ? 368 : 737; break;
+              case 3: max_chunk = sgnd ? 3372 : 6744; break;
+              default: max_chunk = sgnd ? 922 : 1844; break;
+            }
+            break;
+          }
+        }
+        if (chunk[c] > max_chunk) return fail(Error::BAD_ARG);
+        if (chunk[c] < max_chunk) break;
+      }
+
+      big_uint ret = 0;
+      if (sgnd) {
+        big_int place = sign, *sret = reinterpret_cast<big_int*>(&ret);
+        for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) *sret += chunk[c] * place;
+      } else {
+        big_uint place = 1;
+        for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) ret += chunk[c] * place;
+      }
+
+      uint8_t *bret = reinterpret_cast<uint8_t*>(&ret);
+      for (uint8_t i = 0; i < num_bytes; i++) dest[i] = bret[i];
     }
   }
 

@@ -4,8 +4,9 @@
 /**
  * Yet another Arduino serial command library.
  *
- * Supports both text and binary mode.  Text mode can either be used interactively in a serial terminal or by
- * automation.  Binary mode is intended for automation.  Also see CmdMaster.
+ * Unlike most other serial command libraries, this one supports both text and binary mode.  Text mode can either be
+ * used interactively in a serial terminal or by automation.  Binary mode is intended for automation.  Also see
+ * CmdMaster.h (TODO).
  *
  * Header only, 8 bit AVR compatible, low memory footprint, no dynamic allocation.  Most APIs which accept strings have
  * a _P variant indicating the strings are in program memory on AVR (on other platforms these are equivalent to the

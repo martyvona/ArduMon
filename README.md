@@ -7,6 +7,7 @@
 OS X:
 ```
 brew install arduino-cli
+softwareupdate --install-rosetta
 ```
 
 Linux (including Raspbian) - install into `~/bin`:
@@ -22,6 +23,7 @@ arduino-cli config init
 arduino-cli core update-index
 arduino-cli core list --all
 arduino-cli core install arduino:avr
+arduino-cli core install arduino:esp32
 ```
 
 Compile:

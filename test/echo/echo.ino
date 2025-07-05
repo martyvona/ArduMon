@@ -9,7 +9,7 @@
 
 #include <CmdSlave.h>
 
-CmdSlave<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ> cmd(&Serial, false);
+CmdSlave<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ> cmd;
 
 void setup() {
   Serial.begin(BAUD);

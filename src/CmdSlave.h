@@ -200,12 +200,18 @@ public:
     BAD_CMD,        //received command unknown
     BAD_ARG,        //received data failed to parse as expected type
     BAD_HANDLER,    //handler failed
-    BAD_PACKET     //invalid received checksum in binary mode
+    BAD_PACKET      //invalid received checksum in binary mode
   };
 
   CmdSlave(Stream *s, const bool binary = false) : stream(s) { memset(cmds, 0, sizeof(cmds)); set_binary_mode(binary); }
 
+#ifdef ARDUINO
+  CmdSlave(const bool binary = false) : CmdSlave(&Serial, binary) { }
+#endif
+
   Error get_err() { return err; }
+
+  //once an error state is set it is sticky; any further errors will not overwrite it until clear_err() is called
   void clear_err() { err = Error::NONE; }
 
   //handler_t is a pointer to a function taking a pointer to a CmdSlave object and returning success (true)/fail (false)
@@ -229,16 +235,7 @@ public:
   //does nothing if already in the requested mode
   //otherwise the command interpreter and send and receive buffers are reset
   //if the new mode is text and there is a prompt it is sent
-  void set_binary_mode(const bool binary) {
-    if (binary_mode == binary) return;
-    binary_mode = binary;
-    receiving = handling = space_pending = false;
-    err = Error::NONE;
-    recv_ptr = recv_buf;
-    send_read_ptr = 0;
-    if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
-    else { send_write_ptr = send_buf; send_txt_prompt(); }
-  }
+  void set_binary_mode(const bool binary) { set_binary_mode_impl(binary); }
 
   bool is_binary_mode() { return binary_mode; }
   bool is_txt_mode() { return !binary_mode; }
@@ -260,117 +257,37 @@ public:
 
   //receive available bytes up to end of command, if any, and then handle it
   //then send available bytes, if any, while stream can accept them
-  bool update() {
-
-    bool ok = true;
-
-    if (receiving && recv_timeout_ms > 0 && millis() > recv_deadline) { ok = false; err = Error::RECV_TIMEOUT; }
-
-    while (ok && !handling && stream->available()) { //pump receive buffer
-
-      if (recv_ptr - recv_buf >= recv_buf_sz) { err = Error::RECV_OVERFLOW; ok = false; }
-      else {
-
-        *recv_ptr = static_cast<uint8_t>(stream->read());
-
-        if (recv_ptr == recv_buf) { //received first command byte
-          receiving = true;
-          recv_deadline = millis() + recv_timeout_ms;
-        }
-
-        if (binary_mode) {
-
-          if (recv_ptr == recv_buf) { //received length
-            if (*recv_ptr < 3) { err = Error::BAD_CMD; receiving = ok = false; }
-          } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
-            receiving = false; handling = true;
-            ok = handle_bin_command();
-            if (!ok && err == Error::NONE) err = Error::BAD_HANDLER;
-            break;
-          } else ++recv_ptr;
-
-        } else if (*recv_ptr == '\r' || *recv_ptr == '\n') { //text mode end of command
-          //interactive terminal programs like minicom will send '\r'
-          //but if we only echo that, then the cursor will not advance to the next line
-          if (txt_echo) { send_raw('\r'); send_raw('\n'); } //ignore echo errors
-          //we also want to handle cases where automation is sending commands e.g. from a script or canned text file
-          //in that situation the newline could be platform dependent, e.g. '\n' on Unix and OS X, "\r\n" on Windows
-          //if we receive "\r\n" that will just incur an extra empty command
-          //automation would typically not turn on txt_echo
-          //though if it does, it can deal with the separate "\r\n" echo for both '\r' and '\n'
-          receiving = false; handling = true;
-          ok = handle_txt_command();
-          if (!ok && err == Error::NONE) err = Error::BAD_HANDLER;
-          break;
-        } else if (*recv_ptr == '\b' && recv_ptr > recv_buf) { //text mode backspace
-          if (txt_echo) { vt100_move_rel(1, VT100_LEFT); send_raw(' '); vt100_move_rel(1, VT100_LEFT); }
-          --recv_ptr;
-        } else { //text mode command character
-          if (txt_echo) send_raw(*recv_ptr);
-          ++recv_ptr;
-        }
-      }
-    }
-
-    if (!ok) {
-      recv_ptr = recv_buf;
-      receiving = handling = space_pending = false;
-      if (!binary_mode) send_txt_prompt();
-    }
-
-    pump_send_buf(0);
-
-    return ok;
-  }
+  bool update() { return update_impl(); }
 
   //reset the command interpreter and the receive buffer
   //then in text mode send the prompt, if any; in binary mode send_packet()
-  bool end_cmd() {
-    handling = space_pending = false;
-    recv_ptr = recv_buf;
-    if (!binary_mode) { send_txt_prompt(); return true; }
-    return send_packet();
-  }
+  bool end_cmd(const bool ok = true) { return end_cmd_impl(ok); }
 
   //noop in text mode
   //in binary mode if the command handler has not written any bytes then noop
   //otherwise compute packet checksum and length, disable writing send_buf, enable reading it, and pump_send_buf()
   //blocks for up to send_wait_ms
-  bool send_packet() {
-    if (!binary_mode) return true;
-    uint16_t len = send_write_ptr - send_buf;
-    if (len > 254 || len >= send_buf_sz) { err = Error::SEND_OVERFLOW; return false; } //need 1 byte for checksum
-    if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length
-      int8_t sum = 0;
-      for (uint8_t i = 0; i < len; i++) sum += send_buf[i];
-      send_buf[len] = -sum; //set packet checksum
-      send_buf[0] = static_cast<uint8_t>(len + 1); //set packet length including checksum
-      send_write_ptr = 0; //disable writing to send buf
-      send_read_ptr = send_buf; //enable reading from send buf
-    }
-    pump_send_buf();
-    return true;
-  }
+  bool send_packet() { return send_packet_impl(); }
 
   //check if a response packet is still being sent in binary mode
   //do not write additional data to the send buffer while this is the case
   bool sending_packet() { return binary_mode && send_write_ptr = 0; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
-  bool recv() { return next_tok(1) != 0 || fail(Error::RECV_UNDERFLOW); }
+  bool recv() { return next_tok(1); }
 
   //receive a character
   bool recv(char *v) {
-    const uint8_t *ptr = next_tok(1);
-    if (ptr) { *v = static_cast<char>(*ptr); return true; }
-    else return fail(Error::RECV_UNDERFLOW);
+    const char *ptr = reinterpret_cast<const char*>(next_tok(1));
+    if (ptr) { *v = *ptr; return true; }
+    return false;
   }
 
   //receive a string
   bool recv(const char* *v) {
     const char *ptr = reinterpret_cast<const char*>(next_tok(0));
     if (ptr) { *v = ptr; return true; }
-    else return fail(Error::RECV_UNDERFLOW);
+    return false;
   }
 
   //binary mode: receive an integer of the indicated size
@@ -402,19 +319,7 @@ public:
 
   //noop in binary mode
   //in text mode send one line per command: cmd_name cmd_code_hex cmd_description
-  bool send_cmds() {
-    if (binary_mode) return true;
-    for (uint8_t i = 0; i < n_cmds; i++) {
-      if (!write(cmds[i].name, cmds[i].progmem)) return false;
-      if (!write(' ')) return false;
-      if (!write(to_hex(cmds[i].code >> 4))) return false;
-      if (!write(to_hex(cmds[i].code))) return false;
-      if (!write(' ')) return false;
-      if (cmds[i].description && !write(cmds[i].description, cmds[i].progmem)) return false;
-      if (!send_CRLF()) return false;
-    }
-    return true;
-  }
+  bool send_cmds() { return send_cmds_impl(); }
 
   //binary mode: send a single character (8 bit clean)
   //text mode: send space separator if necessary, then send character with quote and escape iff nessary
@@ -470,12 +375,14 @@ public:
   bool send_raw(const float v) { return write(v); }
   bool send_raw(const double v) { return write(v); }
 
+  //some useful VT100 control codes for send_raw()
   //"\x1B" is ASCII 27 which is ESC
 #ifndef ARDUINO
 #define PROGMEM
 #endif
   const char *VT100_INIT PROGMEM = "\x1B\x63";
   const char *VT100_CLEAR PROGMEM = "\x1B[2J";
+  const char *VT100_CLEAR_LINE PROGMEM = "\r\x1B[2K"; //and move cursor to beginning of line
   const char *VT100_CURSOR_VISIBLE PROGMEM = "\x1B[?25h";
   const char *VT100_CURSOR_HIDDEN PROGMEM = "\x1B[?25l";
   const char *VT100_CURSOR_HOME PROGMEM = "\x1B[H"; //move to upper left corner
@@ -553,7 +460,7 @@ private:
   Cmd cmds[max_num_cmds];
   uint8_t n_cmds = 0;
 
-  bool fail(Error e) { err = e; return false; }
+  bool fail(Error e) { if (err == Error::NONE) err = e; return false; }
 
   bool add_cmd(const handler_t handler, const char *name, uint8_t code, const char *description, const bool progmem) {
     if (n_cmds == max_num_cmds) return fail(Error::CMD_OVERFLOW);
@@ -633,26 +540,26 @@ private:
   //unless there are not that many bytes remaining, in which case return 0
   //if binary_bytes is 0 in binary mode then advance to the end of null terminated string
   const uint8_t *next_tok(const uint8_t binary_bytes) {
+#define FAIL fail(Error::RECV_UNDERFLOW); return 0
     if (binary_mode) {
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
-      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) return 0;
+      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL;
       const uint8_t *ret = recv_ptr;
       recv_ptr += binary_bytes;
       return ret;
     } else {
-      if (recv_ptr >= recv_buf + recv_buf_sz) return 0;
-      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) return 0; //skip non-null characters of current token
-      while (!*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) return 0; //skip null separators
+      if (recv_ptr >= recv_buf + recv_buf_sz) FAIL;
+      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip non-null characters of current token
+      while (!*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip null separators
       return recv_ptr;
     }
+#undef FAIL
   }
 
   //binary mode: copy num_bytes int from v to dest
   //text mode: parse a null terminated decimal or hexadecimal int from v to num_bytes at dest
   //if hex == true then always interpret as hex, else interpret as hex iff prefixed with 0x or 0X
   bool parse(const uint8_t *v, uint8_t *dest, const bool sgnd, const uint8_t num_bytes, bool hex) {
-
-    if (!v) return fail(Error::RECV_UNDERFLOW);
 
     if (binary_mode) {
       for (uint8_t i = 0; i < num_bytes; i++) dest[i] = v[i];
@@ -793,7 +700,6 @@ private:
   //binary mode: copy a 4 byte float from v to dest
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float at dest
   template <typename T> bool parse(const uint8_t *v, T *dest) {
-    if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode) {
       for (uint8_t i = 0; i < 4; i++) reinterpret_cast<uint8_t*>(dest)[i] = v[i];
       return true;
@@ -1023,6 +929,118 @@ private:
   void put(const uint8_t c) {
     *send_write_ptr++ = c;
     if (!binary_mode && send_write_ptr == send_buf + send_buf_sz) send_write_ptr = send_buf; //send_buf circular in txt
+  }
+
+  void set_binary_mode_impl(const bool binary) {
+    if (binary_mode == binary) return;
+    binary_mode = binary;
+    receiving = handling = space_pending = false;
+    err = Error::NONE;
+    recv_ptr = recv_buf;
+    send_read_ptr = 0;
+    if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
+    else { send_write_ptr = send_buf; send_txt_prompt(); }
+  }
+
+  bool update_impl() {
+
+    bool ok = true;
+
+    if (receiving && recv_timeout_ms > 0 && millis() > recv_deadline) { ok = fail(Error::RECV_TIMEOUT); }
+
+    while (ok && !handling && stream->available()) { //pump receive buffer
+
+      if (recv_ptr - recv_buf >= recv_buf_sz) { ok = fail(Error::RECV_OVERFLOW); }
+      else {
+
+        *recv_ptr = static_cast<uint8_t>(stream->read());
+
+        if (recv_ptr == recv_buf) { //received first command byte
+          receiving = true;
+          recv_deadline = millis() + recv_timeout_ms;
+        }
+
+        if (binary_mode) {
+
+          if (recv_ptr == recv_buf) { //received length
+            if (*recv_ptr < 3) { receiving = ok = fail(Error::BAD_CMD); }
+          } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
+            receiving = false; handling = true;
+            ok = handle_bin_command();
+            if (!ok) fail(Error::BAD_HANDLER);
+            break;
+          } else ++recv_ptr;
+
+        } else if (*recv_ptr == '\r' || *recv_ptr == '\n') { //text mode end of command
+          //interactive terminal programs like minicom will send '\r'
+          //but if we only echo that, then the cursor will not advance to the next line
+          if (txt_echo) { send_raw('\r'); send_raw('\n'); } //ignore echo errors
+          //we also want to handle cases where automation is sending commands e.g. from a script or canned text file
+          //in that situation the newline could be platform dependent, e.g. '\n' on Unix and OS X, "\r\n" on Windows
+          //if we receive "\r\n" that will just incur an extra empty command
+          //automation would typically not turn on txt_echo
+          //though if it does, it can deal with the separate "\r\n" echo for both '\r' and '\n'
+          receiving = false; handling = true;
+          ok = handle_txt_command();
+          if (!ok) fail(Error::BAD_HANDLER);
+          break;
+        } else if (*recv_ptr == '\b' && recv_ptr > recv_buf) { //text mode backspace
+          if (txt_echo) { vt100_move_rel(1, VT100_LEFT); send_raw(' '); vt100_move_rel(1, VT100_LEFT); }
+          --recv_ptr;
+        } else { //text mode command character
+          if (txt_echo) send_raw(*recv_ptr);
+          ++recv_ptr;
+        }
+      }
+    }
+
+    if (!ok) {
+      recv_ptr = recv_buf;
+      receiving = handling = space_pending = false;
+      if (!binary_mode) send_txt_prompt();
+    }
+
+    pump_send_buf(0);
+
+    return ok;
+  }
+
+  bool end_cmd_impl(const bool ok) {
+    if (!ok) fail(Error::BAD_CMD);
+    handling = space_pending = false;
+    recv_ptr = recv_buf;
+    if (!binary_mode) { send_txt_prompt(); return true; }
+    return send_packet();
+  }
+
+  bool send_packet_impl() {
+    if (!binary_mode) return true;
+    uint16_t len = send_write_ptr - send_buf;
+    if (len > 254 || len >= send_buf_sz) return fail(Error::SEND_OVERFLOW); //need 1 byte for checksum
+    if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length
+      int8_t sum = 0;
+      for (uint8_t i = 0; i < len; i++) sum += send_buf[i];
+      send_buf[len] = -sum; //set packet checksum
+      send_buf[0] = static_cast<uint8_t>(len + 1); //set packet length including checksum
+      send_write_ptr = 0; //disable writing to send buf
+      send_read_ptr = send_buf; //enable reading from send buf
+    }
+    pump_send_buf();
+    return true;
+  }
+
+  bool send_cmds_impl() {
+    if (binary_mode) return true;
+    for (uint8_t i = 0; i < n_cmds; i++) {
+      if (!write(cmds[i].name, cmds[i].progmem)) return false;
+      if (!write(' ')) return false;
+      if (!write(to_hex(cmds[i].code >> 4))) return false;
+      if (!write(to_hex(cmds[i].code))) return false;
+      if (!write(' ')) return false;
+      if (cmds[i].description && !write(cmds[i].description, cmds[i].progmem)) return false;
+      if (!send_CRLF()) return false;
+    }
+    return true;
   }
 
   static void copy_bytes(const void *src, void *dest, const uint8_t num_bytes) {

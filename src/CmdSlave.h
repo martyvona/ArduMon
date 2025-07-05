@@ -147,78 +147,27 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h> //memset()
-#include <ctype.h> //isspace()
-#include <stdlib.h> //strtod()
+#include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
+#include <errno.h>
 
 #ifdef ARDUINO
 
-#include <Arduino.h> //millis(), delayMicroseconds()
+//these are included by default in .ino but not .cpp files
+#include <Arduino.h>
 #include <Stream.h>
 
-#else //shims for building on non-arduino, including on pc for testing
-
-extern "C" {
-  uint32_t millis();
-  void delayMicroseconds(uint16_t us);
-}
-
-class Stream {
-public:
-  virtual int16_t available() = 0;
-  virtual int16_t read() = 0; //-1 if no data available
-  virtual int16_t availableForWrite() = 0;
-  virtual uint16_t write(uint8_t byte) = 0; //returns 1
-};
-
-#endif //ARDUINO
-
-#ifdef __AVR__
-
-#include "avr/pgmspace.h"
-
-//on AVR stdlib.h defines dtostre() and dtostrf()
-
-#elif defined(ARDUINO) //Arduino but not AVR, e.g. ESP32
-
-#include "deprecated-avr-comp/avr/pgmspace.h"
-#include "deprecated-avr-comp/avr/dtostrf.h"
-#define NEED_DTOSTRE
-
-#else //not AVR or Arduino, e.g. building on pc for testing
-
-#define PROGMEM
-#define pgm_read_byte(addr) (*(const unsigned char *)(addr))
-#define strcmp_P(a, b) strcmp((a), (b))
-#define NEED_DTOSTRF
-#define NEED_DTOSTRE
-
-#endif //__AVR__
-
-#ifdef NEED_DTOSTRF
+//ESP32 does not have dtostre(), use snprintf() instead
+#ifndef __AVR__
 #include <stdio.h>
-extern "C" char *dtostrf(double val, signed char width, unsigned char prec, char *out) {
-  char fmt[20];
-  snprintf(fmt, 20, "%%%d.%df", width, prec);
-  snprintf(out, 100, fmt, val);
-  return out;
-}
 #endif
 
-#ifdef NEED_DTOSTRE
+#else //not Arduino
+
 #include <stdio.h>
-#define DTOSTR_ALWAYS_SIGN 0x01 /* put '+' or ' ' for positives */
-#define DTOSTR_PLUS_SIGN 0x02 /* put '+' rather than ' ' */
-#define DTOSTR_UPPERCASE 0x04 /* put 'E' rather 'e' */
-extern "C" char *dtostre(double val, char *out, unsigned char prec, unsigned char flags) {
-  char fmt[20];
-  char sfx = (flags & DTOSTR_UPPERCASE) ? 'E' : 'e';
-  char pfx = (flags & DTOSTR_PLUS_SIGN) ? '+' : (flags & DTOSTR_ALWAYS_SIGN) ? ' ' : 0;
-  if (pfx) snprintf(fmt, 20, "%%%c.%d%c", pfx, prec, sfx);
-  else snprintf(fmt, 20, "%%.%d%c", prec, sfx);
-  snprintf(out, 100, fmt, val);
-  return out;
-}
+#include <sys/time.h>
+
 #endif
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
@@ -231,7 +180,15 @@ public:
 
   typedef unsigned long millis_t;
 
-  CmdSlave(Stream *s, const bool binary = false) : stream(s) { memset(cmds, 0, sizeof(cmds)); set_binary_mode(binary); }
+#ifndef ARDUINO
+  class Stream {
+  public:
+    virtual int16_t available() = 0;
+    virtual int16_t read() = 0; //-1 if no data available
+    virtual int16_t availableForWrite() = 0;
+    virtual uint16_t write(uint8_t byte) = 0; //returns 1
+  };
+#endif
 
   enum class Error : uint8_t {
     NONE,
@@ -243,9 +200,10 @@ public:
     BAD_CMD,        //received command unknown
     BAD_ARG,        //received data failed to parse as expected type
     BAD_HANDLER,    //handler failed
-    BAD_PACKET,     //invalid received checksum in binary mode
-    BAD_CALL        //invalid argument in API call
+    BAD_PACKET     //invalid received checksum in binary mode
   };
+
+  CmdSlave(Stream *s, const bool binary = false) : stream(s) { memset(cmds, 0, sizeof(cmds)); set_binary_mode(binary); }
 
   Error get_err() { return err; }
   void clear_err() { err = Error::NONE; }
@@ -399,18 +357,18 @@ public:
   bool sending_packet() { return binary_mode && send_write_ptr = 0; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
-  bool recv() { return next_token(1) != 0 || fail(Error::RECV_UNDERFLOW); }
+  bool recv() { return next_tok(1) != 0 || fail(Error::RECV_UNDERFLOW); }
 
   //receive a character
   bool recv(char *v) {
-    const uint8_t *ptr = next_token(1);
+    const uint8_t *ptr = next_tok(1);
     if (ptr) { *v = static_cast<char>(*ptr); return true; }
     else return fail(Error::RECV_UNDERFLOW);
   }
 
   //receive a string
   bool recv(const char* *v) {
-    const char *ptr = next_token(0);
+    const char *ptr = reinterpret_cast<const char*>(next_tok(0));
     if (ptr) { *v = ptr; return true; }
     else return fail(Error::RECV_UNDERFLOW);
   }
@@ -418,20 +376,22 @@ public:
   //binary mode: receive an integer of the indicated size
   //text mode: receive a decimal or hexadecimal integer
   //if hex == true then always interpret as hex in text mode, else interpret as hex iff prefixed with 0x or 0X
-  bool recv( uint8_t *v, const bool hex = false) { return parse(next_token(1), v, false, 1, hex); }
-  bool recv(  int8_t *v, const bool hex = false) { return parse(next_token(1), v, true,  1, hex); }
-  bool recv(uint16_t *v, const bool hex = false) { return parse(next_token(2), v, false, 2, hex); }
-  bool recv( int16_t *v, const bool hex = false) { return parse(next_token(2), v, true,  2, hex); }
-  bool recv(uint32_t *v, const bool hex = false) { return parse(next_token(4), v, false, 4, hex); }
-  bool recv( int32_t *v, const bool hex = false) { return parse(next_token(4), v, true,  4, hex); }
-  bool recv(uint64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, false, 8, hex); }
-  bool recv( int64_t *v, const bool hex = false) { return parse<int64_t, uint64_t>(next_token(8), v, true,  8, hex); }
+#define BP(p) reinterpret_cast<uint8_t*>(p)
+  bool recv( uint8_t *v, const bool hex = false) { return parse(next_tok(1), BP(v), false, 1, hex); }
+  bool recv(  int8_t *v, const bool hex = false) { return parse(next_tok(1), BP(v), true,  1, hex); }
+  bool recv(uint16_t *v, const bool hex = false) { return parse(next_tok(2), BP(v), false, 2, hex); }
+  bool recv( int16_t *v, const bool hex = false) { return parse(next_tok(2), BP(v), true,  2, hex); }
+  bool recv(uint32_t *v, const bool hex = false) { return parse(next_tok(4), BP(v), false, 4, hex); }
+  bool recv( int32_t *v, const bool hex = false) { return parse(next_tok(4), BP(v), true,  4, hex); }
+  bool recv(uint64_t *v, const bool hex = false) { return parse(next_tok(8), BP(v), false, 8, hex); }
+  bool recv( int64_t *v, const bool hex = false) { return parse(next_tok(8), BP(v), true,  8, hex); }
+#undef BP
 
   //binary mode: receive float or double
   //text mode: receive a decimal or scientific float or double
   //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
-  bool recv(float *v) { return parse(next_token(4), v); }
-  bool recv(double *v) { return parse(next_token(sizeof(double)), v); }
+  bool recv(float *v) { return parse(next_tok(4), v); }
+  bool recv(double *v) { return parse(next_tok(sizeof(double)), v); }
 
   //sends carriage return and line feed in text mode; noop in binary mode
   bool send_CRLF() {
@@ -465,14 +425,15 @@ public:
 
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: send space sep if necessary, then send string with quote and escape iff necessary, w/o terminating null
-  bool send  (const char* v)  { return send_txt_sep() && write(v, false, true); }
-  bool send_P(const char* v)  { return send_txt_sep() && write(v, true, true); }
+#define BP(p) reinterpret_cast<const uint8_t*>(p)
+  bool send  (const char* v)  { return send_txt_sep() && write(BP(v), false, true); }
+  bool send_P(const char* v)  { return send_txt_sep() && write(BP(v), true, true); }
 
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: append string to send buffer, not including terminating null
   //if len >= 0 then send len bytes instead of checking for null terminator in either mode
-  bool send_raw  (const char* v, const int16_t len = -1)  { return write(v, false, false, len); }
-  bool send_raw_P(const char* v, const int16_t len = -1)  { return write(v, true, false, len); }
+  bool send_raw  (const char* v, const int16_t len = -1)  { return write(BP(v), false, false, len); }
+  bool send_raw_P(const char* v, const int16_t len = -1)  { return write(BP(v), true, false, len); }
 
   //binary mode: send an integer of the indicated size
   //text mode: send space separator if necessary, then send decimal or hexadecimal integer
@@ -487,14 +448,15 @@ public:
 
   //binary mode: send an integer of the indicated size
   //text mode: send decimal or hexadecimal integer
-  bool send_raw(const  uint8_t v, const bool hex = false) { return write(&v, false, 1, hex); }
-  bool send_raw(const   int8_t v, const bool hex = false) { return write(&v, true,  1, hex); }
-  bool send_raw(const uint16_t v, const bool hex = false) { return write(&v, false, 2, hex); }
-  bool send_raw(const  int16_t v, const bool hex = false) { return write(&v, true,  2, hex); }
-  bool send_raw(const uint32_t v, const bool hex = false) { return write(&v, false, 4, hex); }
-  bool send_raw(const  int32_t v, const bool hex = false) { return write(&v, true,  4, hex); }
-  bool send_raw(const uint64_t v, const bool hex = false) { return write<uint64_t>(&v, false, 8, hex); }
-  bool send_raw(const  int64_t v, const bool hex = false) { return write<uint64_t>(&v, true,  8, hex); }
+  bool send_raw(const  uint8_t v, const bool hex = false) { return write(BP(&v), false, 1, hex); }
+  bool send_raw(const   int8_t v, const bool hex = false) { return write(BP(&v), true,  1, hex); }
+  bool send_raw(const uint16_t v, const bool hex = false) { return write(BP(&v), false, 2, hex); }
+  bool send_raw(const  int16_t v, const bool hex = false) { return write(BP(&v), true,  2, hex); }
+  bool send_raw(const uint32_t v, const bool hex = false) { return write(BP(&v), false, 4, hex); }
+  bool send_raw(const  int32_t v, const bool hex = false) { return write(BP(&v), true,  4, hex); }
+  bool send_raw(const uint64_t v, const bool hex = false) { return write(BP(&v), false, 8, hex); }
+  bool send_raw(const  int64_t v, const bool hex = false) { return write(BP(&v), true,  8, hex); }
+#undef BP
 
   //binary mode: send float or double
   //text mode: send space separator if necessary, then send float or double as decimal or scientific
@@ -509,6 +471,9 @@ public:
   bool send_raw(const double v) { return write(v); }
 
   //"\x1B" is ASCII 27 which is ESC
+#ifndef ARDUINO
+#define PROGMEM
+#endif
   const char *VT100_INIT PROGMEM = "\x1B\x63";
   const char *VT100_CLEAR PROGMEM = "\x1B[2J";
   const char *VT100_CURSOR_VISIBLE PROGMEM = "\x1B[?25h";
@@ -516,6 +481,9 @@ public:
   const char *VT100_CURSOR_HOME PROGMEM = "\x1B[H"; //move to upper left corner
   const char *VT100_CURSOR_SAVE PROGMEM = "\x1B[7"; //save position and attributes
   const char *VT100_CURSOR_RESTORE PROGMEM = "\x1B[8"; //restore position and attributes
+#ifndef ARDUINO
+#undef PROGMEM
+#endif
 
   const char VT100_UP = 'A', VT100_DOWN = 'B', VT100_RIGHT = 'C', VT100_LEFT = 'D';
 
@@ -531,21 +499,6 @@ public:
   bool vt100_move_abs(const uint16_t row, const uint16_t col) {
     if (binary_mode) return true;
     return send_raw('\x1B') && send_raw('[') && send_raw(row) && send_raw(';') && send_raw(col) && send_raw('H');
-  }
-
-  //convert the low nybble of i to a hex char 0-9A-F
-  static char to_hex(uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
-
-  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
-  static int strcmp_PP(const char* a, const char* b) {
-    if (a == b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    while (true) {
-      char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
-      if (ca != cb) return ca - cb;
-      if (!ca) return 0;
-    }
   }
 
 private:
@@ -586,11 +539,11 @@ private:
 
   struct Cmd {
 
-    const handler_t handler;
-    const char *name;
-    const uint8_t code;
-    const char *description;
-    const bool progmem;
+    handler_t handler;
+    char *name;
+    uint8_t code;
+    char *description;
+    bool progmem;
 
     const bool is(const char *n) { return (progmem ? strcmp_P(n, name) : strcmp(n, name)) == 0; }
     const bool is_P(const char *n) { return (progmem ? CmdSlave::strcmp_PP(name, n) : strcmp_P(name, n)) == 0; }
@@ -614,7 +567,7 @@ private:
   void pump_send_buf(const millis_t wait_ms) {
     const millis_t deadline = millis() + wait_ms;
     do {
-      while (send_read_ptr > 0 && stream->availableForWrite()) {
+      while (send_read_ptr != 0 && stream->availableForWrite()) {
         stream->write(*send_read_ptr++);
         if (binary_mode) {
           if (send_read_ptr == send_buf + send_buf[0]) { //sent entire packet
@@ -630,8 +583,8 @@ private:
         }
       }
       //reduce repetitive calls to millis() which temporarily disables interrupts
-      if (send_read_ptr > 0 && wait_ms > 0) delayMicroseconds(10);
-    } while (send_read_ptr > 0 && wait_ms > 0 && millis() < deadline);
+      if (send_read_ptr != 0 && wait_ms > 0) delayMicroseconds(10);
+    } while (send_read_ptr != 0 && wait_ms > 0 && millis() < deadline);
   }
 
   void pump_send_buf() { pump_send_buf(send_wait_ms); }
@@ -679,7 +632,7 @@ private:
   //advance recv_ptr by binary_bytes in binary mode and return its previous value
   //unless there are not that many bytes remaining, in which case return 0
   //if binary_bytes is 0 in binary mode then advance to the end of null terminated string
-  const uint8_t *next_token(const uint8_t binary_bytes) {
+  const uint8_t *next_tok(const uint8_t binary_bytes) {
     if (binary_mode) {
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
       if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) return 0;
@@ -697,11 +650,7 @@ private:
   //binary mode: copy num_bytes int from v to dest
   //text mode: parse a null terminated decimal or hexadecimal int from v to num_bytes at dest
   //if hex == true then always interpret as hex, else interpret as hex iff prefixed with 0x or 0X
-  template <typename big_int = int32_t, //supports int32_t, int64_t
-            typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool parse(const uint8_t *v, uint8_t *dest, const bool sgnd, const uint8_t num_bytes, bool hex) {
-
-    if (num_bytes > sizeof(big_uint)) return fail(Error::BAD_CALL);
 
     if (!v) return fail(Error::RECV_UNDERFLOW);
 
@@ -717,10 +666,11 @@ private:
       v += 2;
     }
 
+    const char *s = reinterpret_cast<const char*>(v);
     if (hex) {
-      const char *dig = reinterpret_cast<const char*>(v);
+      const char *dig = s;
       for (uint8_t i = 0; *dig; i++, dig++) if (i >= 2 * num_bytes) return fail(Error::RECV_OVERFLOW);
-      for (uint8_t i = 0; dig > reinterpret_cast<const char*>(v); i++) {
+      for (uint8_t i = 0; dig > s; i++) {
         const char d = *--dig; uint8_t p;
         if (d >= '0' && d <= '9') p = d - '0';
         else if (d >= 'A' && d <= 'F') p = 10 + d - 'A';
@@ -729,95 +679,115 @@ private:
         if ((i&1) == 0) dest[i/2] = p;
         else dest[i/2] |= p << 4;
       }
-    } else {
-
-      //strtol() and strtoul() are available but long int is only 32 bits on AVR
-      //TODO use strtol()/strtoul() iff num_bytes <= sizeof(long)
-
-      const int8_t sign = v[0] == '-' ? -1 : +1;
-      v++;
-
-      const bool neg = sign < 0;
-      if (neg && !sgnd) return fail(Error::BAD_ARG);
-
-      while (*v == '0') v++; //skip leading zeros
-
-      uint8_t max_digits, last_chunk;
-      switch (num_bytes) {
-        case 1: { max_digits = 3; last_chunk = 0; break; }
-        case 2: { max_digits = 5; last_chunk = 1; break; }
-        case 4: { max_digits = 10; last_chunk = 2; break; }
-        case 8: { max_digits = sgnd ? 19 : 20; last_chunk = 4; break; }
-      }
-
-      const char *dig = reinterpret_cast<const char*>(v);
-      for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::RECV_OVERFLOW);
-
-      //read digits from least to most significant in chunks of 4 at a time
-      constexpr uint8_t num_chunks = sizeof(big_uint) > 4 ? 5 : 3;
-      int16_t chunk[num_chunks];
-      for (uint8_t i = 0; i < num_chunks; i++) chunk[i] = 0;
-      for (uint8_t c = 0; c <= last_chunk && dig > reinterpret_cast<const char*>(v); c++) {
-        for (uint16_t place = 1; place <= 1000; place *= 10) {
-          if (--dig < reinterpret_cast<const char*>(v)) break; //no more digits to read
-          const char d = *dig;
-          if (d < '0' || d > '9') return fail(Error::BAD_ARG);
-          chunk[c] += (d - '0') * place;
-        }
-      }
-
-      for (uint8_t c = last_chunk; c >= 0; c--) {
-        int16_t max_chunk;
-        switch (num_bytes) {
-          case 1: {
-            //unsigned 0 to 255, signed -128 to 127
-            max_chunk = neg ? 128 : sgnd ? 127 : 255;
-            break;
-          }
-          case 2: {
-            //unsigned 0 to 6:5535, signed -3:2768 to 3:2767
-            if (c == 0) max_chunk = neg ? 2768 : sgnd ? 2767 : 5535;
-            else max_chunk = sgnd ? 3 : 6;
-            break;
-          }
-          case 4: {
-            //unsigned 0 to 42:9496:7295, signed -21:4748:3648 to 21:4748:3647
-            switch (c) {
-              case 0: max_chunk = neg ? 3648 : sgnd ? 3647 : 7295; break;
-              case 1: max_chunk = sgnd ? 4748 : 9496; break;
-              default: max_chunk = sgnd ? 21 : 42; break;
-            }
-            break;
-          }
-          case 8: {
-            //unsigned 0 to 1844:6744:0737:0955:1615
-            //signed -922:3372:0368:5477:5808 to 922:3372:0368:5477:5807
-            switch (c) {
-              case 0: max_chunk = neg ? 5808 : sgnd ? 5807 : 1615; break;
-              case 1: max_chunk = sgnd ? 5477 : 955; break;
-              case 2: max_chunk = sgnd ? 368 : 737; break;
-              case 3: max_chunk = sgnd ? 3372 : 6744; break;
-              default: max_chunk = sgnd ? 922 : 1844; break;
-            }
-            break;
-          }
-        }
-        if (chunk[c] > max_chunk) return fail(Error::BAD_ARG);
-        if (chunk[c] < max_chunk) break;
-      }
-
-      big_uint ret = 0;
-      if (sgnd) {
-        big_int place = sign, *sret = reinterpret_cast<big_int*>(&ret);
-        for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) *sret += chunk[c] * place;
-      } else {
-        big_uint place = 1;
-        for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) ret += chunk[c] * place;
-      }
-
-      uint8_t *bret = reinterpret_cast<uint8_t*>(&ret);
-      for (uint8_t i = 0; i < num_bytes; i++) dest[i] = bret[i];
+      return true;
     }
+
+    if (num_bytes <= sizeof(long)) {
+      long unsigned int ret = 0;
+      char *e;
+      //atol() saves a few hundred bytes vs strtol() but has no error checking
+      if (sgnd) *(reinterpret_cast<long int*>(&ret)) = strtol(s, &e, 10);
+      else ret = strtoul(s, &e, 10); //there is no atoul()
+      if (e == s || errno == ERANGE) return fail(Error::BAD_ARG);
+      copy_bytes(&ret, dest, num_bytes);
+      return true;
+    }
+
+    //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
+    //but just in case, handle the case that sizeof(long) < 4 as well
+    //(the compiler appears to optimize out the int32 specialization of parse_dec() unless it's really used)
+    if (num_bytes <= 4) return parse_dec<int32_t, uint32_t>(s, dest, sgnd, num_bytes);
+    else return parse_dec<int64_t, uint64_t>(s, dest, sgnd, num_bytes);
+  }
+
+  //parse a null terminated decimal int from s to num_bytes at dest
+  template <typename big_int, typename big_uint> //supports int32_t/uint32_t, int64_t/uint64_t
+  bool parse_dec(const char *s, uint8_t *dest, const bool sgnd, const uint8_t num_bytes) {
+
+    const int8_t sign = s[0] == '-' ? -1 : +1;
+    s++;
+
+    const bool neg = sign < 0;
+    if (neg && !sgnd) return fail(Error::BAD_ARG);
+    
+    while (*s == '0') s++; //skip leading zeros
+
+    uint8_t max_digits, last_chunk;
+    switch (num_bytes) {
+      case 1: { max_digits = 3; last_chunk = 0; break; }
+      case 2: { max_digits = 5; last_chunk = 1; break; }
+      case 4: { max_digits = 10; last_chunk = 2; break; }
+      case 8: { max_digits = sgnd ? 19 : 20; last_chunk = 4; break; }
+    }
+
+    const char *dig = s;
+    for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::RECV_OVERFLOW);
+
+    //read digits from least to most significant in 4 digit chunks
+    constexpr uint8_t num_chunks = sizeof(big_uint) > 4 ? 5 : 3;
+    int16_t chunk[num_chunks];
+    for (uint8_t i = 0; i < num_chunks; i++) chunk[i] = 0;
+    for (uint8_t c = 0; c <= last_chunk && dig > s; c++) {
+      for (uint16_t place = 1; place <= 1000; place *= 10) {
+        if (--dig < s) break; //no more digits to read
+        const char d = *dig;
+        if (d < '0' || d > '9') return fail(Error::BAD_ARG);
+        chunk[c] += (d - '0') * place;
+      }
+    }
+    
+    for (uint8_t c = last_chunk; c >= 0; c--) {
+      int16_t max_chunk;
+      switch (num_bytes) {
+        case 1: {
+          //unsigned 0 to 255, signed -128 to 127
+          max_chunk = neg ? 128 : sgnd ? 127 : 255;
+          break;
+        }
+        case 2: {
+          //unsigned 0 to 6:5535, signed -3:2768 to 3:2767
+          if (c == 0) max_chunk = neg ? 2768 : sgnd ? 2767 : 5535;
+          else max_chunk = sgnd ? 3 : 6;
+          break;
+        }
+        case 4: {
+          //unsigned 0 to 42:9496:7295, signed -21:4748:3648 to 21:4748:3647
+          switch (c) {
+            case 0: max_chunk = neg ? 3648 : sgnd ? 3647 : 7295; break;
+            case 1: max_chunk = sgnd ? 4748 : 9496; break;
+            default: max_chunk = sgnd ? 21 : 42; break;
+          }
+          break;
+        }
+        case 8: {
+          //unsigned 0 to 1844:6744:0737:0955:1615
+          //signed -922:3372:0368:5477:5808 to 922:3372:0368:5477:5807
+          switch (c) {
+            case 0: max_chunk = neg ? 5808 : sgnd ? 5807 : 1615; break;
+            case 1: max_chunk = sgnd ? 5477 : 955; break;
+            case 2: max_chunk = sgnd ? 368 : 737; break;
+            case 3: max_chunk = sgnd ? 3372 : 6744; break;
+            default: max_chunk = sgnd ? 922 : 1844; break;
+          }
+          break;
+        }
+      }
+      if (chunk[c] > max_chunk) return fail(Error::BAD_ARG);
+      if (chunk[c] < max_chunk) break;
+    }
+    
+    big_uint ret = 0;
+    if (sgnd) {
+      big_int place = sign, *sret = reinterpret_cast<big_int*>(&ret);
+      for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) *sret += chunk[c] * place;
+    } else {
+      big_uint place = 1;
+      for (uint8_t c = 0; c <= last_chunk; c++, place *= 10000) ret += chunk[c] * place;
+    }
+
+    copy_bytes(&ret, dest, num_bytes);
+
+    return true;
   }
 
   //binary mode: copy a 4 byte float from v to dest
@@ -830,8 +800,8 @@ private:
     }
     const char *s = reinterpret_cast<const char*>(v);
     char *e;
-    double d = strtod(s, &e);
-    if (s == e) return fail(Error::BAD_ARG);
+    double d = strtod(s, &e); //atof() is also available but is just sugar for strtod(s, 0) on AVR
+    if (s == e || errno == ERANGE) return fail(Error::BAD_ARG);
     *dest = static_cast<T>(d);
     return true;
   }
@@ -841,15 +811,56 @@ private:
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool write(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const bool hex) {
 
-    if (num_bytes > sizeof(big_uint)) return fail(Error::BAD_CALL);
-
     if (binary_mode) {
       if (!check_write(num_bytes)) return fail(Error::SEND_OVERFLOW);
       for (uint8_t i = 0; i < num_bytes; i++) put(v[i]);
       return true;
     }
 
-    bool neg = sgnd && (v[num_bytes - 1] & 0x80);
+    if (hex) {
+      if (!check_write(2 * num_bytes)) return fail(Error::SEND_OVERFLOW);
+      uint8_t * const write_start = send_write_ptr;
+      for (uint8_t i = 0; i < num_bytes; i++) { put(to_hex(v[i])); put(to_hex(v[i] >> 4)); }
+      if (!send_read_ptr) send_read_ptr = write_start; //enable sending
+      return true;
+    }
+
+    //itoa() and utoa() could be used here if num_bytes <= sizeof(int)
+    //but that increases progmem usage, probably not worth it
+
+    if (num_bytes <= sizeof(long)) {
+      char buf[2 + sizeof(long) > 4 ? 20 : sizeof(long) > 2 ? 10 : 5];
+      if (sgnd) {
+        long i;
+        copy_bytes(v, &i, num_bytes);
+#ifdef ARDUINO
+        ltoa(i, buf, 10);
+#else
+        snprintf(buf, sizeof(buf), "%ld", i);
+#endif
+      } else {
+        unsigned long i;
+        copy_bytes(v, &i, num_bytes);
+#ifdef ARDUINO
+        ultoa(i, buf, 10);
+#else
+        snprintf(buf, sizeof(buf), "%lu", i);
+#endif
+      }
+      return true;
+    }
+
+    //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
+    //but just in case, handle the case that sizeof(long) < 4 as well
+    //(the compiler appears to optimize out the int32 specialization of parse_dec() unless it's really used)
+    if (num_bytes <= 4) return write_dec<uint32_t>(v, sgnd, num_bytes);
+    else return write_dec<uint64_t>(v, sgnd, num_bytes);
+  }
+
+  template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
+  bool write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes) {
+
+    const bool neg = sgnd && (v[num_bytes - 1] & 0x80);
 
     uint8_t len = 1 + (neg ? 1 : 0); //terminating null and leading sign
     switch (num_bytes) {
@@ -859,59 +870,36 @@ private:
       case 8: len += 20; break; //2^64-1 = 18,446,744,073,709,551,615 (20 digits)
     }
 
-    //in most cases we flip negative v to positive num here
-    //by inverting the bytes of v as we copy them to num and then adding one
-    //(if num_bytes < sizeof(big_uint) don't need to sign extend the high bytes because the flip of 0xff is 0)
-    //the one exception is if v is 0x80 00 .. 00 = -(2^(N-1)) as intN_t = 2^(N-1) as uintN_t
+    //flip negative v to positive num by inverting the bytes of v as we copy them to num and then adding one
     big_uint num = 0;
-    bool flip = neg;
-    if (flip && num_bytes == sizeof(big_uint)) {
-      if (v[sizeof(big_uint) - 1] == 0x80) {
-        bool rest_zero = true;
-        for (uint8_t i = 0; rest_zero && i < sizeof(big_uint) - 1; i++) rest_zero = rest_zero && v[i] == 0;
-        if (rest_zero) flip = false;
-      }
-    }
-    for (uint8_t i = 0; i < num_bytes; i++) *(reinterpret_cast<uint8_t*>(&num) + i) = flip ? ~v[i] : v[i];
-    if (flip) ++num;
+    for (uint8_t i = 0; i < num_bytes; i++) *(reinterpret_cast<uint8_t*>(&num) + i) = neg ? ~v[i] : v[i];
+    if (neg) ++num;
 
-    constexpr uint8_t buff_sz = sizeof(big_uint) == 4 ? (1 + 10 + 1) : (1 + 20 + 1);
-    char buf[buff_sz];
+    char buf[sizeof(big_uint) == 4 ? (1 + 10 + 1) : (1 + 20 + 1)];
     uint8_t i = len - 1;
     buf[i] = '\0';
 
-    if (num == 0) buf[--i] = '0';
-    else if (hex) {
-      for (uint8_t i = 0; i < num_bytes; i++) {
-        buf[--i] = to_hex(v[i]);
-        buf[--i] = to_hex(v[i] >> 4);
-      }
-    } else {
-      while (num > 10000) {
-        big_uint q = num / 10000;
-        uint16_t r = num - q * 10000;
-        num = q;
-        for (uint8_t j = 0; j < 5; j++) {
-          uint16_t qq = r / 10;
-          buf[--i] = '0' + (r - qq * 10);
-          r = qq;
-        }
-      }
-      //if uint16_t is changed to big_uint then the next loop would be sufficient on its own
-      //but the loop above reduces the amount of 32 or 64 bit math overall
-      while (num) {
-        uint16_t q = num / 10;
-        buf[--i] = '0' + (num - q * 10);
-        num = q;
+    while (num > 10000) { //process 4 digit chunks with one big_uint divide per chunk, plus some 16 bit math
+      big_uint q = num / 10000;
+      uint16_t r = num - q * 10000;
+      num = q;
+      for (uint8_t j = 0; j < 5; j++) {
+        uint16_t qq = r / 10;
+        buf[--i] = '0' + (r - qq * 10);
+        r = qq;
       }
     }
-
+    //if uint16_t is changed to big_uint below then the next loop would be sufficient on its own
+    //but the loop above reduces the amount of big_uint math
+    while (num) {
+      uint16_t q = num / 10;
+      buf[--i] = '0' + (num - q * 10);
+      num = q;
+    }
+  
     if (neg) buf[--i] = '-';
 
-    if (!check_write(len - i)) return fail(Error::SEND_OVERFLOW);
-    const uint8_t *write_start = send_write_ptr;
-    while (i < len) put(buf[i++]);
-    if (!send_read_ptr) send_read_ptr = write_start; //enable sending
+    return write(reinterpret_cast<const uint8_t*>(buf + i), false, false, len - i);
   }
 
   //binary mode: append float or double v to send buffer
@@ -934,28 +922,35 @@ private:
     //go scientific if exp is 0 (sub-normal) or exp_mask (nan or inf) or if it's < -4 or > 20 (2^20 ~= 10^6)
     bool scientific = !(exp == 0 || exp == exp_mask) && (exp < (exp_bias - 4) || exp > (exp_bias + 20));
     if (scientific) {
-      char buf[1 + 1 + 1 + (sig_dig-1) + 1 + 1 + exp_dig + 1]; //sign d . d{sig_dig-1} E sign d{exp_dig} \0
-      for (uint8_t i = 0; i < sizeof(buf); i++) buf[i] = 0;
-      dtostre(v, buf, sig_dig - 1, DTOSTR_UPPERCASE);
+      constexpr uint8_t buf_sz =
+        1 + 1 + 1 + (sig_dig-1) + 1 + 1 + exp_dig + 1; //sign d . d{sig_dig-1} E sign d{exp_dig} \0
+      char buf[buf_sz];
+      for (uint8_t i = 0; i < buf_sz; i++) buf[i] = 0;
+#ifdef __AVR__
+      dtostre(v, buf, sig_dig - 1, DTOSTR_UPPERCASE); //dtostre() is only on AVR, not ESP32
+#else
+      if (sig_dig == 8) snprintf(buf, buf_sz, "%.7E", v);
+      else snprintf(buf, buf_sz, "%.15E", v);
+#endif
       uint8_t j = strchr(buf, 'E') - buf;
       uint8_t k = trim_trailing(buf, j - 1);
       while (buf[j]) buf[++k] = buf[j++];
       buf[++k] = 0;
-      return write(buf, false, -1);
+      return write(reinterpret_cast<const uint8_t*>(buf), false, -1);
     } else {
-      char buf[1 + 1 + 1 + 3 + sig_dig + 1]; //sign d{7} . d{sig_dig - 7} \0 | sign 0 . 000 d{sig_dig} \0
-      for (uint8_t i = 0; i < sizeof(buf); i++) buf[i] = 0;
-      dtostrf(v, -(sizeof(buf) - 1), sig_dig - 1, buf); //negative width = left align
-      trim_trailing(buf, sizeof(buf) - 1);
-      return write(buf, false, -1);
+      constexpr uint8_t buf_sz =
+        1 + 1 + 1 + 3 + sig_dig + 1; //sign d{7} . d{sig_dig - 7} \0 | sign 0 . 000 d{sig_dig} \0
+      char buf[buf_sz];
+      for (uint8_t i = 0; i < buf_sz; i++) buf[i] = 0;
+#ifdef ARDUINO
+      dtostrf(v, -(buf_sz - 1), sig_dig - 1, buf); //negative width = left align
+#else
+      if (sig_dig == 8) snprintf(buf, buf_sz, "%.7f", v);
+      else snprintf(buf, buf_sz, "%.15f", v);
+#endif
+      trim_trailing(buf, buf_sz - 1);
+      return write(reinterpret_cast<const uint8_t*>(buf), false, -1);
     }
-  }
-
-  //trim trailing whitespace and zeros backwards from start index; returns next un-trimmed index
-  uint8_t trim_trailing(char *s, const uint8_t start) {
-    uint8_t i = start;
-    while (i >= 0 && (s[i - 1] != '.') && (s[i] == 0 || s[i] == '0' || s[i] == ' ')) s[i--] = '\0';
-    return i;
   }
 
   //binary mode: append char to send buffer
@@ -967,7 +962,7 @@ private:
     } else {
       const char esc = cook ? escape(c) : 0;
       const bool quote = cook && (isspace(c) || esc);
-      const uint8_t *write_start = send_write_ptr;
+      uint8_t * const write_start = send_write_ptr;
       if (!check_write(1 + (esc ? 1 : 0) + (quote ? 2 : 0))) return fail(Error::SEND_OVERFLOW);
       if (quote) put('\'');
       if (esc) { put('\\'); put(esc); } else put(c);
@@ -995,7 +990,7 @@ private:
 
     if (!check_write((len > 0) ? len : (n + n_esc + (quote ? 2 : 0)))) return fail(Error::SEND_OVERFLOW);
 
-    const uint8_t *write_start = send_write_ptr;
+    uint8_t * const write_start = send_write_ptr;
 
     if (quote) put('"');
 
@@ -1013,8 +1008,38 @@ private:
     return true;
   }
 
+  //check if there are at least n free bytes available in send_buf
+  bool check_write(const uint16_t n) {
+    if (!send_write_ptr) return false;
+    if (binary_mode) { if (send_write_ptr + n >= send_buf + send_buf_sz) return false; } //reserve byte for checksum
+    else if (send_read_ptr != 0) { if (send_write_ptr + n > send_read_ptr) return false; }
+    else if (send_write_ptr + n > send_buf + send_buf_sz) return false;
+    return true;
+  }
+
+  //append a byte to send_buf
+  //advances send_write_ptr; send_read_ptr is updated in the write(...) functions which call this
+  //assumes check_write() already returned true
+  void put(const uint8_t c) {
+    *send_write_ptr++ = c;
+    if (!binary_mode && send_write_ptr == send_buf + send_buf_sz) send_write_ptr = send_buf; //send_buf circular in txt
+  }
+
+  static void copy_bytes(const void *src, void *dest, const uint8_t num_bytes) {
+    for (uint8_t i = 0; i < num_bytes; i++) {
+      reinterpret_cast<uint8_t*>(dest)[i] = reinterpret_cast<const uint8_t*>(src)[i];
+    }
+  }
+
+  //trim trailing whitespace and zeros backwards from start index; returns next un-trimmed index
+  static uint8_t trim_trailing(char *s, const uint8_t start) {
+    uint8_t i = start;
+    while (i >= 0 && (s[i - 1] != '.') && (s[i] == 0 || s[i] == '0' || s[i] == ' ')) s[i--] = '\0';
+    return i;
+  }
+
   //return escape char if c needs to be backslash escaped, else return 0
-  const char escape(const char c) {
+  static const char escape(const char c) {
     switch (c) {
       case '\'': return '\'';
       case '"': return '"';
@@ -1030,22 +1055,47 @@ private:
     }
   }
 
-  //check if there are at least n free bytes available in send_buf
-  bool check_write(const uint16_t n) {
-    if (!send_write_ptr) return false;
-    if (binary_mode) { if (send_write_ptr + n >= send_buf + send_buf_sz) return false; } //reserve byte for checksum
-    else if (send_read_ptr > 0) { if (send_write_ptr + n > send_read_ptr) return false; }
-    else if (send_write_ptr + n > send_buf + send_buf_sz) return false;
-    else return true;
+  //convert the low nybble of i to a hex char 0-9A-F
+  static char to_hex(uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
+
+  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
+  static int strcmp_PP(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    while (true) {
+      char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
+      if (ca != cb) return ca - cb;
+      if (!ca) return 0;
+    }
   }
 
-  //append a byte to send_buf
-  //advances send_write_ptr; send_read_ptr is updated in the write(...) functions which call this
-  //assumes check_write() already returned true
-  void put(const uint8_t c) {
-    *send_write_ptr++ = c;
-    if (!binary_mode && send_write_ptr == send_buf + send_buf_sz) send_write_ptr = send_buf; //send_buf circular in txt
+#ifndef ARDUINO
+
+  template <typename T> static T pgm_read_byte(const T *a) { return *a; }
+
+  static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
+
+  uint32_t millis() {
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    uint64_t now_ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    static uint64_t start_ms = now_ms;
+    return now_ms - start_ms;
   }
+
+  void delayMicroseconds(uint16_t us) {
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    uint64_t start_us = tv.tv_sec * 1000000 + tv.tv_usec, now_us;
+    do {
+      gettimeofday(&tv,NULL);
+      now_us = tv.tv_sec * 1000000 + tv.tv_usec;
+    } while (now_us - start_us < us);
+  }
+
+#endif
+
 };
 
 #endif

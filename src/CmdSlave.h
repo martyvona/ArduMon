@@ -271,7 +271,7 @@ public:
 
   //check if a response packet is still being sent in binary mode
   //do not write additional data to the send buffer while this is the case
-  bool sending_packet() { return binary_mode && send_write_ptr = 0; }
+  bool sending_packet() { return binary_mode && send_write_ptr == 0; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
   bool recv() { return next_tok(1); }

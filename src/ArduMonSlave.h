@@ -88,7 +88,33 @@ public:
   //if not, the command is considered still being handled until end_cmd() is called
   typedef bool (*handler_t)(ArduMonSlave*);
 
-  uint8_t num_cmds() { return n_cmds; }
+  //get the number of registered commands
+  uint8_t get_num_cmds() { return n_cmds; }
+
+  //get the maximum number of commands that could be registered
+  uint8_t get_max_num_cmds() { return max_num_cmds; }
+
+  //get the send buffer size in bytes
+  uint16_t get_send_buf_size() { return send_buf_sz; }
+
+  //binary mode: get packet size if currently sending a packet, else get number of bytes used so far in send buffer
+  //text mode: get number of bytes written to send buf but not yet sent
+  uint16_t get_send_buf_used() { return send_buf_used(); }
+
+  //sugar for get_send_buf_size() - get_send_buf_used()
+  uint16_t get_send_buf_free() { return send_buf_sz - send_buf_used(); }
+
+  //get the receive buffer size in bytes
+  uint16_t get_recv_buf_size() { return recv_buf_sz; }
+
+  //if not currently receiving or handling a command then return 0
+  //if curently receiving a command then get number of bytes received so far
+  //if handling in binary mode return received packet size
+  //if handling in text mode return length of received command string
+  uint16_t get_recv_buf_used() { return recv_buf_used(); }
+
+  //sugar for get_recv_buf_size() - get_recv_buf_used()
+  uint16_t get_recv_buf_free() { return recv_buf_sz - recv_buf_used(); }
 
   //add a command; handler and name are required; code is required if binary mode will be used; description is optional
   bool add_cmd(const handler_t handler, const char *name, uint8_t code = 0, const char *description = 0) {
@@ -105,6 +131,10 @@ public:
   //if the new mode is text and there is a prompt it is sent
   void set_binary_mode(const bool binary) { set_binary_mode_impl(binary); }
 
+  //the command interpreter and send and receive buffers are reset
+  //in text mode if there is a prompt it is sent
+  void reset() { set_binary_mode_impl(binary_mode, true); }
+
   bool is_binary_mode() { return binary_mode; }
   bool is_txt_mode() { return !binary_mode; }
 
@@ -120,8 +150,12 @@ public:
   //set to 0 to disable the timeout (it's disabled by default)
   void set_recv_timeout_ms(const millis_t ms) { recv_timeout_ms = ms; }
 
-  //block for up to this long in send_packet() or send(...) in text mode
+  millis_t get_recv_timeout_ms() { return recv_timeout_ms; }
+
+  //block for up to this long in send_packet() or send(...) in text mode, default 0
   void set_send_wait_ms(const millis_t ms) { send_wait_ms = ms; }
+
+  millis_t get_send_wait_ms() { return send_wait_ms; }
 
   //receive available bytes up to end of command, if any, and then handle it
   //then send available bytes, if any, while stream can accept them
@@ -139,7 +173,13 @@ public:
 
   //check if a response packet is still being sent in binary mode
   //do not write additional data to the send buffer while this is the case
-  bool sending_packet() { return binary_mode && send_write_ptr == 0; }
+  bool is_sending_packet() { return binary_mode && send_write_ptr == 0; }
+
+  //check if a command handler is currently running
+  bool is_handling() { return handling; }
+
+  //check if the first byte of a command has been received but not yet the full command
+  bool is_receiving() { return receiving; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
   bool recv() { return next_tok(1); }
@@ -202,15 +242,14 @@ public:
 
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: send space sep if necessary, then send string with quote and escape iff necessary, w/o terminating null
-#define BP(p) reinterpret_cast<const uint8_t*>(p)
-  bool send  (const char* v)  { return send_txt_sep() && write_str(BP(v), false, true); }
-  bool send_P(const char* v)  { return send_txt_sep() && write_str(BP(v), true, true); }
+  bool send  (const char* v)  { return send_txt_sep() && write_str(v, false, true); }
+  bool send_P(const char* v)  { return send_txt_sep() && write_str(v, true, true); }
 
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: append string to send buffer, not including terminating null
   //if len >= 0 then send len bytes instead of checking for null terminator in either mode
-  bool send_raw  (const char* v, const int16_t len = -1)  { return write_str(BP(v), false, false, len); }
-  bool send_raw_P(const char* v, const int16_t len = -1)  { return write_str(BP(v), true, false, len); }
+  bool send_raw  (const char* v, const int16_t len = -1)  { return write_str(v, false, false, len); }
+  bool send_raw_P(const char* v, const int16_t len = -1)  { return write_str(v, true, false, len); }
 
   enum class BoolStyle : uint8_t { TRUE_FALSE, TF, ZERO_ONE, YES_NO, YN };
 
@@ -239,6 +278,7 @@ public:
 
   //binary mode: send an integer of the indicated size
   //text mode: send decimal or hexadecimal integer
+#define BP(p) reinterpret_cast<const uint8_t*>(p)
   bool send_raw(const  uint8_t v, const bool hex = false) { return write_int(BP(&v), false, 1, hex); }
   bool send_raw(const   int8_t v, const bool hex = false) { return write_int(BP(&v), true,  1, hex); }
   bool send_raw(const uint16_t v, const bool hex = false) { return write_int(BP(&v), false, 2, hex); }
@@ -329,7 +369,7 @@ private:
 
   //next available position in recv_buf while receiving a command
   //last received character when beginning to handle a command
-  //start of next token while handling command
+  //start of next read while handling command
   uint8_t *recv_ptr = recv_buf;
 
   //send_read_ptr is the next unsent byte in the send buffer; sending is disabled iff send_read_ptr is 0
@@ -371,31 +411,6 @@ private:
     ++n_cmds;
     return true;
   }
-
-  void pump_send_buf(const millis_t wait_ms) {
-    const millis_t deadline = millis() + wait_ms;
-    do {
-      while (send_read_ptr != 0 && stream->availableForWrite()) {
-        stream->write(*send_read_ptr++);
-        if (binary_mode) {
-          if (send_read_ptr == send_buf + send_buf[0]) { //sent entire packet
-            send_read_ptr = 0; //disable reading from send buf
-            send_write_ptr = send_buf + 1; //enable writing to send buf, reserve first byte for length
-          }
-        } else {
-          if (send_read_ptr == send_buf + send_buf_sz) send_read_ptr = send_buf; //wrap read ptr in circular buffer
-          if (send_read_ptr == send_write_ptr) { //circular send buf empty
-            send_read_ptr = 0; //disable reading from send buf
-            send_write_ptr = send_buf; //needed by check_write
-          }
-        }
-      }
-      //reduce repetitive calls to millis() which temporarily disables interrupts
-      if (send_read_ptr != 0 && wait_ms > 0) delayMicroseconds(10);
-    } while (send_read_ptr != 0 && wait_ms > 0 && millis() < deadline);
-  }
-
-  void pump_send_buf() { pump_send_buf(send_wait_ms); }
 
   //does nothing if binary_mode, if txt_prompt is null, or if currently handling
   //otherwise sends CRLF followed by txt_prompt and a space
@@ -772,7 +787,7 @@ private:
   
     if (neg) buf[--i] = '-';
 
-    return write_str(reinterpret_cast<const uint8_t*>(buf + i), false, false, len - i);
+    return write_str(buf + i, false, false, len - i);
   }
 
   //binary mode: append float or double v to send buffer
@@ -807,7 +822,7 @@ private:
         while (buf[j]) buf[++k] = buf[j++];
         buf[++k] = 0;
       }
-      return write_str(reinterpret_cast<const uint8_t*>(buf), false, false, -1);
+      return write_str(buf, false, false, -1);
     } else {
       constexpr uint8_t buf_sz =
         1 + 1 + 1 + 3 + sig_dig + 1; //sign d{7} . d{sig_dig - 7} \0 | sign 0 . 000 d{sig_dig} \0
@@ -822,7 +837,7 @@ private:
       snprintf(buf, buf_sz, fmt, v);
 #endif
       if (precision < 0) trim_trailing(buf, buf_sz - 1);
-      return write_str(reinterpret_cast<const uint8_t*>(buf), false, false, -1);
+      return write_str(buf, false, false, -1);
     }
   }
 
@@ -882,12 +897,19 @@ private:
     return true;
   }
 
+  bool write_str(const char *v, const bool progmem, const bool cook = false, const int16_t len = -1) {
+    return write_str(reinterpret_cast<const uint8_t*>(v), progmem, cook, len);
+  }
+    
   //check if there are at least n free bytes available in send_buf
   bool check_write(const uint16_t n) {
     if (!send_write_ptr) return false;
     if (binary_mode) { if (send_write_ptr + n >= send_buf + send_buf_sz) return false; } //reserve byte for checksum
-    else if (send_read_ptr != 0) { if (send_write_ptr + n > send_read_ptr) return false; }
-    else if (send_write_ptr + n > send_buf + send_buf_sz) return false;
+    else if (send_read_ptr != 0) { //circular send buf in txt mode
+      const uint16_t used = send_read_ptr <= send_write_ptr ?
+        send_write_ptr - send_read_ptr : send_buf_sz - (send_read_ptr - send_write_ptr);
+      return n <= send_buf_sz - used;
+    } else if (send_write_ptr + n > send_buf + send_buf_sz) return false;
     return true;
   }
 
@@ -899,8 +921,29 @@ private:
     if (!binary_mode && send_write_ptr == send_buf + send_buf_sz) send_write_ptr = send_buf; //send_buf circular in txt
   }
 
-  void set_binary_mode_impl(const bool binary) {
-    if (binary_mode == binary) return;
+  //see get_send_buf_used()
+  uint16_t send_buf_used() {
+    if (binary_mode) { return send_read_ptr ? send_buf[0] : send_write_ptr - send_buf + 1; } //+1 for checksum
+    if (send_read_ptr != 0) { //circular send buf in txt mode
+      return send_read_ptr <= send_write_ptr ?
+        send_write_ptr - send_read_ptr : send_buf_sz - (send_read_ptr - send_write_ptr);
+    }
+    return send_write_ptr - send_buf;
+  }
+
+  //see get_recv_buf_used()
+  uint16_t recv_buf_used() {
+    if (!receiving && !handling) return 0;
+    if (receiving) return recv_ptr - recv_buf;
+    if (binary_mode) return recv_buf[0];
+    uint8_t *last_non_null = recv_buf + recv_buf_sz - 1;
+    while (last_non_null >= recv_buf && *last_non_null == 0) --last_non_null;
+    return last_non_null - recv_buf + 1;
+  }
+
+  //see set_binary_mode(), reset()
+  void set_binary_mode_impl(const bool binary, const bool force = false) {
+    if (!force && binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
     err = Error::NONE;
@@ -910,6 +953,7 @@ private:
     else { send_write_ptr = send_buf; send_txt_prompt(); }
   }
 
+  //see update()
   bool update_impl() {
 
     bool ok = true;
@@ -973,8 +1017,34 @@ private:
     return ok;
   }
 
+  void pump_send_buf(const millis_t wait_ms) {
+    const millis_t deadline = millis() + wait_ms;
+    do {
+      while (send_read_ptr != 0 && stream->availableForWrite()) {
+        stream->write(*send_read_ptr++);
+        if (binary_mode) {
+          if (send_read_ptr == send_buf + send_buf[0]) { //sent entire packet
+            send_read_ptr = 0; //disable reading from send buf
+            send_write_ptr = send_buf + 1; //enable writing to send buf, reserve first byte for length
+          }
+        } else {
+          if (send_read_ptr == send_buf + send_buf_sz) send_read_ptr = send_buf; //wrap read ptr in circular buffer
+          if (send_read_ptr == send_write_ptr) { //circular send buf empty
+            send_read_ptr = 0; //disable reading from send buf
+            send_write_ptr = send_buf; //needed by check_write
+          }
+        }
+      }
+      //reduce repetitive calls to millis() which temporarily disables interrupts
+      if (send_read_ptr != 0 && wait_ms > 0) delayMicroseconds(10);
+    } while (send_read_ptr != 0 && wait_ms > 0 && millis() < deadline);
+  }
+
+  void pump_send_buf() { pump_send_buf(send_wait_ms); }
+
+  //see end_cmd()
   bool end_cmd_impl(const bool ok) {
-    if (!ok) fail(Error::BAD_CMD);
+    if (!ok) fail(Error::BAD_CMD); //but don't return yet
     handling = space_pending = false;
     recv_ptr = recv_buf;
     if (!binary_mode) { send_txt_prompt(); return true; }
@@ -992,20 +1062,20 @@ private:
       send_buf[0] = static_cast<uint8_t>(len + 1); //set packet length including checksum
       send_write_ptr = 0; //disable writing to send buf
       send_read_ptr = send_buf; //enable reading from send buf
-    }
-    pump_send_buf();
+      pump_send_buf();
+    } //else send_write_ptr must still be send_buf + 1 and send_read_ptr = 0
     return true;
   }
 
   bool send_cmds_impl() {
     if (binary_mode) return true;
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if (!write_char(cmds[i].name, cmds[i].progmem)) return false;
+      if (!write_str(cmds[i].name, cmds[i].progmem)) return false;
       if (!write_char(' ')) return false;
       if (!write_char(to_hex(cmds[i].code >> 4))) return false;
       if (!write_char(to_hex(cmds[i].code))) return false;
       if (!write_char(' ')) return false;
-      if (cmds[i].description && !write(cmds[i].description, cmds[i].progmem)) return false;
+      if (cmds[i].description && !write_str(cmds[i].description, cmds[i].progmem)) return false;
       if (!send_CRLF()) return false;
     }
     return true;

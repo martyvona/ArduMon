@@ -34,6 +34,11 @@ bool noop(AMS *ams) {
   return true;
 }
 
+bool help(AMS *ams) {
+  if (!ams->send_cmds()) show_error();
+  return true;
+}
+
 bool echo_char(AMS *ams) {
   char v;
   if (!ams->recv(&v)) show_error();
@@ -145,6 +150,7 @@ bool echo_double(AMS *ams) {
 void add_cmds() {
   uint8_t code = 0;
   if (!ams.add_cmd_P(noop, PSTR("noop"), code++, "no operation")) show_error();
+  if (!ams.add_cmd_P(help, PSTR("help"), code++, "show commands")) show_error();
   if (!ams.add_cmd_P(echo_char, PSTR("ec"), code++, "echo char")) show_error();
   if (!ams.add_cmd_P(echo_str, PSTR("es"), code++, "echo str")) show_error();
   if (!ams.add_cmd_P(echo_bool, PSTR("eb"), code++, "echo bool")) show_error();
@@ -167,6 +173,8 @@ void add_cmds() {
 #ifdef ARDUINO
 void setup() {
   Serial.begin(BAUD);
+  ams.set_txt_prompt("demo>");
+  ams.set_txt_echo(true);
   add_cmds();
 }
 

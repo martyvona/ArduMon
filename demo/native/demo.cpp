@@ -109,6 +109,7 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 
 #define WITH_INT64
 #define WITH_DOUBLE
+#define STREAM demo_stream
 #include "../demo.ino"
 //demo.ino defines the global ArduMonSlave isntance ams
 

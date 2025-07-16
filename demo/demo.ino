@@ -1,3 +1,5 @@
+#include <ArduMonSlave.h>
+
 #define WITH_INT64
 #define WITH_DOUBLE
 
@@ -15,8 +17,6 @@
 #define SEND_BUF_SZ 256
 #endif
 
-#include <ArduMonSlave.h>
-
 typedef ArduMonSlave<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ> AMS;
 
 #ifdef ARDUINO
@@ -26,7 +26,34 @@ AMS ams;
 #define PSTR(s) (s)
 #include <cstdio>
 void println(const char *str) { printf("%s\n", str); }
-AMS ams(&demo_stream);
+AMS ams(&STREAM);
+#endif
+
+bool noop(AMS *ams) { return ams->end_cmd(); }
+
+bool help(AMS *ams) { return ams->send_cmds() && ams->end_cmd(); }
+
+template <typename T> bool echo(AMS *ams) {
+  //the first recv() skips over the command token itself
+  T v; return ams->recv() && ams->recv(&v) && ams->send(v) && ams->send_CRLF() && ams->end_cmd();
+}
+
+bool echo_char(AMS *ams) { return echo<char>(ams); }
+bool echo_str(AMS *ams) { return echo<const char*>(ams); }
+bool echo_bool(AMS *ams) { return echo<bool>(ams); }
+bool echo_u8(AMS *ams) { return echo<uint8_t>(ams); }
+bool echo_s8(AMS *ams) { return echo<int8_t>(ams); }
+bool echo_u16(AMS *ams) { return echo<uint16_t>(ams); }
+bool echo_s16(AMS *ams) { return echo<int16_t>(ams); }
+bool echo_u32(AMS *ams) { return echo<uint32_t>(ams); }
+bool echo_s32(AMS *ams) { return echo<int32_t>(ams); }
+#ifdef WITH_INT64
+bool echo_u64(AMS *ams) { return echo<uint64_t>(ams); }
+bool echo_s64(AMS *ams) { return echo<int64_t>(ams); }
+#endif
+bool echo_float(AMS *ams) { return echo<float>(ams); }
+#ifdef WITH_DOUBLE
+bool echo_double(AMS *ams) { return echo<double>(ams); }
 #endif
 
 void show_error() {
@@ -37,126 +64,6 @@ void show_error() {
   }
 }
 
-bool noop(AMS *ams) {
-  if (!ams->recv()) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool help(AMS *ams) {
-  if (!ams->send_cmds()) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_char(AMS *ams) {
-  char v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_str(AMS *ams) {
-  const char *v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_bool(AMS *ams) {
-  bool v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_u8(AMS *ams) {
-  uint8_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_s8(AMS *ams) {
-  int8_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_u16(AMS *ams) {
-  uint16_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_s16(AMS *ams) {
-  int16_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_u32(AMS *ams) {
-  uint32_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_s32(AMS *ams) {
-  int32_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-#ifdef WITH_INT64
-bool echo_u64(AMS *ams) {
-  uint64_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-bool echo_s64(AMS *ams) {
-  int64_t v;
-  if (!ams->recv(&v)) show_error();
-  if (!ams->send(v)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-#endif
-
-bool echo_float(AMS *ams) {
-  float f;
-  if (!ams->recv(&f)) show_error();
-  if (!ams->send(f)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-
-#ifdef WITH_DOUBLE
-bool echo_double(AMS *ams) {
-  double d;
-  if (!ams->recv(&d)) show_error();
-  if (!ams->send(d)) show_error();
-  if (!ams->end_cmd()) show_error();
-  return true;
-}
-#endif
-
 void add_cmds() {
 
   ams.set_txt_prompt("demo>");
@@ -164,6 +71,7 @@ void add_cmds() {
 
   if (!ams.add_cmd_P(noop, PSTR("noop"), "no operation")) show_error();
   if (!ams.add_cmd_P(help, PSTR("help"), "show commands")) show_error();
+  if (!ams.add_cmd_P(help, PSTR("?"), "show commands")) show_error();
   if (!ams.add_cmd_P(echo_char, PSTR("ec"), "echo char")) show_error();
   if (!ams.add_cmd_P(echo_str, PSTR("es"), "echo str")) show_error();
   if (!ams.add_cmd_P(echo_bool, PSTR("eb"), "echo bool")) show_error();

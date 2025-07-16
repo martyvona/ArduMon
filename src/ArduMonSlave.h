@@ -36,6 +36,19 @@
 
 #include <ArduMonBase.h>
 
+//max_num_cmds is the maximum number of commands that can be registered
+//
+//recv_buf_sz is the recieve buffer size in bytes
+//in text mode the receive buffer must be large enough to hold the largest commandline
+//in binary mode the receive buffer must be large enough to hold the largest incoming packet
+//(all packets are no larger than 256 bytes)
+//recv_buf_sz can be set to 0 for an application that only sends (which would be unusual, but is possible)
+//(technically an array cannot have 0 length but we handle that by substituting 1 for 0 when we create the buffer)
+//
+//send_buf_sz is the send buffer size in bytes
+//the send buffer is not used in text mode, and send_buf_sz can be set to 0 if binary mode will not be used
+//in binary mode the send buffer must be large enough to hold the largest outgoing packet
+//send_buf_sz can be set to 0 for an application that only receives
 template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256>
 class ArduMonSlave : public ArduMonBase {
 public:
@@ -508,7 +521,6 @@ private:
     if (cmd == 0) return end_cmd(true); //ignore empty command
     recv_ptr = recv_buf;
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
-    write_str_P(PSTR("unknown command"));
     return fail(Error::BAD_CMD);
   }
 
@@ -552,7 +564,7 @@ private:
     while (true) {
       const char s = pgm_read_byte(sfx++), c = *reinterpret_cast<const char*>(v++);
       if (s == 0) { if (c == 0) { *dest = ret; return true; } else return false; }
-      if (s != c && !((s + 40) == c)) return false; //'A' + 40 == 'a'
+      if (s != c && !((s + 32) == c)) return false; //'A' + 32 == 'a'
     }
   }
 
@@ -723,7 +735,8 @@ private:
     if (binary_mode && !check_write(len + 1)) return fail(Error::SEND_OVERFLOW);
     uint8_t * const write_start = send_write_ptr;
     for (uint8_t i = 0; i < len + 1; i++) {
-      uint8_t c = pgm_read_byte(uppercase + i) + (to_lower ? 40 : 0); //'A' + 40 = 'a'
+      uint8_t c = pgm_read_byte(uppercase + i);
+      if (c && to_lower) c += 32; //'A' + 32 = 'a'
       if (c || binary_mode) put(c);
     }
     if (!binary_mode && !send_read_ptr) send_read_ptr = write_start; //enable sending
@@ -884,7 +897,7 @@ private:
       if (!check_write(1)) return fail(Error::SEND_OVERFLOW);
       put(c);
     } else {
-      const char esc = cook ? escape(c) : 0;
+      const char esc = cook ? escape(c, '\'') : 0;
       const bool quote = cook && (isspace(c) || esc);
       uint8_t * const write_start = send_write_ptr;
       if (quote) put('\'');
@@ -905,7 +918,7 @@ private:
     bool quote = false;
     uint16_t n = 0, n_esc = 0;
     while (len < 0 && v[n]) {
-      if (!binary_mode && cook && escape(v[n])) { ++n_esc; quote = true; }
+      if (!binary_mode && cook && escape(v[n], '"')) { ++n_esc; quote = true; }
       else if (!binary_mode && cook && isspace(v[n])) quote = true;
       ++n;
     }
@@ -920,7 +933,7 @@ private:
 
     for (uint16_t i = 0; len < 0 || i < len; i++) {
       const uint8_t c = progmem ? pgm_read_byte(v + i) : v[i];
-      const char esc = (c && !binary_mode && cook && len < 0) ? escape(c) : 0;
+      const char esc = (c && !binary_mode && cook && len < 0) ? escape(c, '"') : 0;
       if (esc) { put('\\'); put(esc); } else if (c || binary_mode) put(c);
       if (len < 0 && !c) break; //wrote terminating null
     }
@@ -1006,6 +1019,7 @@ private:
 
         if (recv_ptr == recv_buf) { //received first command byte
           receiving = true;
+          err = Error::NONE;
           recv_deadline = millis() + recv_timeout_ms;
         }
 
@@ -1048,7 +1062,10 @@ private:
     if (!ok) {
       recv_ptr = recv_buf;
       receiving = handling = space_pending = false;
-      if (!binary_mode) send_txt_prompt(true);
+      if (!binary_mode) {
+        if (err != Error::NONE) write_str_P(err_msg_P(err));
+        send_txt_prompt(true);
+      }
     }
 
     pump_send_buf(0);
@@ -1102,10 +1119,10 @@ private:
   bool send_cmds_impl() {
     if (binary_mode) return true;
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if (cmds[i].name && !write_str(cmds[i].name, cmds[i].progmem)) return false;
-      if (!write_char(' ')) return false;
       if (!write_char(to_hex(cmds[i].code >> 4))) return false;
       if (!write_char(to_hex(cmds[i].code))) return false;
+      if (!write_char(' ')) return false;
+      if (cmds[i].name && !write_str(cmds[i].name, cmds[i].progmem)) return false;
       if (!write_char(' ')) return false;
       if (cmds[i].description && !write_str(cmds[i].description, cmds[i].progmem)) return false;
       if (!send_CRLF()) return false;
@@ -1121,10 +1138,9 @@ private:
   }
 
   //return escape char if c needs to be backslash escaped, else return 0
-  static const char escape(const char c) {
+  static const char escape(const char c, const char quote) {
+    if (c == quote) return quote;
     switch (c) {
-      case '\'': return '\'';
-      case '"': return '"';
       case '\\': return '\\';
       case '\a': return 'a';
       case '\b': return 'b';

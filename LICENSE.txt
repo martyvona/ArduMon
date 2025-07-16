@@ -1,4 +1,4 @@
-ArduMon: Add a CLI and API to your Arduino Project
+ArduMon
 
 Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  

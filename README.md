@@ -2,7 +2,7 @@
 
 # ArduMon
 
-**Add a CLI *and* API to your Arduino Project**
+**add a CLI *and* a packet API to your Arduino project**
 
 **CURRENT STATUS: WORK IN PROGRESS**
 

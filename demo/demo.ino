@@ -79,7 +79,7 @@ void add_cmds() {
   if (!ams.add_cmd_P(echo_s8, PSTR("e8"), "echo int8")) show_error();
   if (!ams.add_cmd_P(echo_u16, PSTR("eu16"), "echo uint16")) show_error();
   if (!ams.add_cmd_P(echo_s16, PSTR("e16"), "echo int16")) show_error();
-  if (!ams.add_cmd_P(echo_s32, PSTR("eu32"), "echo uint32")) show_error();
+  if (!ams.add_cmd_P(echo_u32, PSTR("eu32"), "echo uint32")) show_error();
   if (!ams.add_cmd_P(echo_s32, PSTR("e32"), "echo int32")) show_error();
 #ifdef WITH_INT64
   if (!ams.add_cmd_P(echo_u64, PSTR("eu64"), "echo uint64")) show_error();
@@ -91,12 +91,12 @@ void add_cmds() {
 #endif
 }
 
-#ifdef ARDUINO
 void setup() {
+#ifdef ARDUINO
   Serial.begin(BAUD);
+#endif
   add_cmds();
 }
 
 void loop() { ams.update(); }
-#endif
 

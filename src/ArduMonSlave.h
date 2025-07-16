@@ -194,7 +194,7 @@ public:
 
   millis_t get_send_wait_ms() { return send_wait_ms; }
 
-  //this must be called from the Arduino update() method
+  //this must be called from the Arduino loop() method
   //receive available input bytes from stream
   //if the end of a command is received then dispatch and handle it
   //in binary mode this will also attempt to send any remaining response packet bytes, without blocking
@@ -515,10 +515,11 @@ private:
       if (!in_str && !in_chr && c == '#') while (j < len) recv_buf[j++] = 0; //ignore comment
       else recv_buf[j] = c;
     }
+    if (in_str || in_chr) return fail(Error::BAD_ARG);
     while (j < recv_buf_sz) recv_buf[j++] = 0;
     recv_ptr = recv_buf;
     const char *cmd = reinterpret_cast<const char*>(next_tok(0));
-    if (cmd == 0) return end_cmd(true); //ignore empty command
+    if (!cmd) return end_cmd(true); //ignore empty command
     recv_ptr = recv_buf;
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
     return fail(Error::BAD_CMD);
@@ -531,14 +532,15 @@ private:
   //if binary_bytes is 0 in binary mode then advance to the end of null terminated string
   const uint8_t *next_tok(const uint8_t binary_bytes) {
 #define FAIL { fail(Error::RECV_UNDERFLOW); return 0; }
-    if (recv_ptr >= recv_buf + recv_buf_sz) FAIL
+    if (recv_ptr >= recv_buf + recv_buf_sz) FAIL;
+    if (!*recv_ptr) FAIL;
     const uint8_t *ret = recv_ptr;
     if (binary_mode && binary_bytes > 0) {
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
-      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL
+      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL;
       recv_ptr += binary_bytes;
     } else {
-      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL //skip non-null characters of current token
+      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip non-null characters of current token
       while (*recv_ptr == 0) if (++recv_ptr == recv_buf + recv_buf_sz) break; //skip null separators
     }
     return ret;
@@ -548,6 +550,7 @@ private:
   //binary mode: receive a byte with value 0 or nonzero
   //text mode: receive "true", "false", "t", "f", "0", "1", "yes", "no", "y", "n" or uppercase equivalents
   bool parse_bool(const uint8_t *v, bool *dst) {
+    if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode) { *dst = *v != 0; return true; }
     switch (*v++) {
       case '0': if (*v == 0) { *dst = false; return true; } else return fail(Error::BAD_ARG);
@@ -573,7 +576,9 @@ private:
   //if hex == true then always interpret as hex, else interpret as hex iff prefixed with 0x or 0X
   bool parse_int(const uint8_t *v, uint8_t *dest, const bool sgnd, const uint8_t num_bytes, bool hex) {
 
-    if (binary_mode) return copy_bytes(v, dest, num_bytes);
+    if (!v) return fail(Error::RECV_UNDERFLOW);
+
+    if (binary_mode) { copy_bytes(v, dest, num_bytes); return true; }
 
     for (uint8_t i = 0; i < num_bytes; i++) dest[i] = 0;
 
@@ -598,10 +603,29 @@ private:
     if (num_bytes <= sizeof(long)) {
       long unsigned int ret = 0;
       char *e;
-      //atol() saves a few hundred bytes vs strtol() but has no error checking
-      if (sgnd) *(reinterpret_cast<long int*>(&ret)) = strtol(s, &e, 10);
-      else ret = strtoul(s, &e, 10); //there is no atoul()
-      if (e == s || errno == ERANGE) return fail(Error::BAD_ARG);
+      const char *expected_e = s; while (*expected_e) ++expected_e;
+      errno = 0;
+      if (sgnd) {
+        //atol() saves a few hundred bytes vs strtol() but has no error checking
+        long int tmp = strtol(s, &e, 10);
+        if (e != expected_e || errno == ERANGE) return fail(Error::BAD_ARG);
+        *(reinterpret_cast<long int*>(&ret)) = tmp;
+        switch (num_bytes) {
+          case 1: if (tmp < -128l || tmp > 127l) return fail(Error::BAD_ARG); else break;
+          case 2: if (tmp < -32768l || tmp > 32767l) return fail(Error::BAD_ARG); else break;
+          case 4: if (tmp < -2147483648l || tmp > 2147483647l) return fail(Error::BAD_ARG); else break;
+          //otherwise rely on errno == ERANGE
+        }
+      } else {
+        ret = strtoul(s, &e, 10); //there is no atoul()
+        if (e != expected_e || errno == ERANGE) return fail(Error::BAD_ARG);
+        switch (num_bytes) {
+          case 1: if (ret > 255ul) return fail(Error::BAD_ARG); else break;
+          case 2: if (ret > 65535ul) return fail(Error::BAD_ARG); else break;
+          case 4: if (ret > 4294967295ul) return fail(Error::BAD_ARG); else break;
+          //otherwise rely on errno == ERANGE
+        }
+      }
       copy_bytes(&ret, dest, num_bytes);
       return true;
     }
@@ -706,11 +730,14 @@ private:
   //binary mode: copy a 4 byte float or 8 byte double from v to dest
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float or 8 byte double at dest
   template <typename T> bool parse_float(const uint8_t *v, T *dest) {
-    if (binary_mode) return copy_bytes(v, dest, sizeof(T));
+    if (!v) return fail(Error::RECV_UNDERFLOW);
+    if (binary_mode) { copy_bytes(v, dest, sizeof(T)); return true; }
     const char *s = reinterpret_cast<const char*>(v);
     char *e;
+    const char *expected_e = s; while (*expected_e) ++expected_e;
+    errno = 0;
     double d = strtod(s, &e); //atof() is also available but is just sugar for strtod(s, 0) on AVR
-    if (s == e || errno == ERANGE) return fail(Error::BAD_ARG);
+    if (e != expected_e || errno == ERANGE) return fail(Error::BAD_ARG);
     *dest = static_cast<T>(d);
     return true;
   }
@@ -768,7 +795,8 @@ private:
     if (num_bytes <= sizeof(long)) {
       char buf[2 + sizeof(long) > 4 ? 20 : sizeof(long) > 2 ? 10 : 5];
       if (sgnd) {
-        long i;
+        //sign extend: if sign bit (high bit of high byte) is set initialize to -1 which is all 1s in binary, else 0
+        long i = v[num_bytes-1]&0x80 ? -1 : 0;
         copy_bytes(v, &i, num_bytes);
 #ifdef ARDUINO
         ltoa(i, buf, 10);
@@ -776,7 +804,7 @@ private:
         snprintf(buf, sizeof(buf), "%ld", i);
 #endif
       } else {
-        unsigned long i;
+        unsigned long i = 0;
         copy_bytes(v, &i, num_bytes);
 #ifdef ARDUINO
         ultoa(i, buf, 10);
@@ -784,7 +812,7 @@ private:
         snprintf(buf, sizeof(buf), "%lu", i);
 #endif
       }
-      return true;
+      return write_str(buf);
     }
 
     //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8

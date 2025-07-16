@@ -181,7 +181,7 @@ int main(int argc, const char **argv) {
   if (!socket_filename) usage();
 
   std::cout << "adding demo commands\n";
-  add_cmds();
+  setup();
   if (!ams.add_cmd(quit_cmd, "quit", "quit")) show_error();
   std::cout << "added "
             << static_cast<int>(ams.get_num_cmds()) << "/" << static_cast<int>(ams.get_max_num_cmds()) << " commands\n";
@@ -245,7 +245,7 @@ int main(int argc, const char **argv) {
 
     for (size_t i = 0; i < ret; i++) demo_stream.in.put(buf[i]);
     
-    ams.update();
+    loop();
     
     AMS::Error e = ams.get_err();
     if (e != AMS::Error::NONE) {

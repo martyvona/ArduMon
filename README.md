@@ -12,7 +12,7 @@ Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
 
 Once upon a time, it was not uncommon during microcontroller firmware development to implement a *monitor*, which was basically a command line interface (CLI) exposed by the firmware over a serial port.  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
 
-*ArduMon* is yet another one of these, but with a few features that I didn't see in any of the existing ones:
+*ArduMon* is yet another one of these, but with a few features that I didn't see in most of the existing ones:
 
 * The same command handler code can operate in either text or binary mode.  Text mode would be used for a traditional CLI-style monitor user interface.  Binary mode reuses the same command implementations as text mode, but turns them into an efficient packet-based application programming interface (API).
 * Supported command argument and response data types include: character, string, boolean, 8/16/32/64 bit signed and unsigned integers, and 32 and 64 bit floating point numbers.  Each command can accept zero or more parameters of these types and also respond with zero or more of them.  Text mode responses can also respond with free-form text, or with VT100 control sequences, e.g. to implement a dynamically updating text display.  In text mode, integers can be read and written in hexadecimal or decimal, and floating point numbers can be read and written in decimal or scientific format.
@@ -79,7 +79,6 @@ For each command in text mode:
     escaped if they contain a quote or whitespace character.  The `send_raw()` APIs can be used to avoid the space
     prefix, quote, and escape behaviors.
 1.  The command handler must end with a call to `end_cmd()`, which will reset the command interpreter.
-
 
 Supported backslash escape sequences in text mode:
 

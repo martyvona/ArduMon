@@ -177,16 +177,16 @@ public:
   //set text prompt from a program memory string
   void set_txt_prompt_P(const char *prompt) { txt_prompt = prompt; txt_prompt_progmem = true; send_txt_prompt(); }
 
+  const millis_t ALWAYS_WAIT = -1ul; //-1 in base 2 is all 1s as unsigned
+
   //set receive timeout
   //if a command starts being received but is not finished by this timeout the command interpreter will reset
   //this probably makes more sense for automation than for interactive use
   //if a command is currently being received the new timeout will not apply until the next command
-  //set to 0 to disable the timeout (it's disabled by default)
-  void set_recv_timeout_ms(const millis_t ms) { recv_timeout_ms = ms; }
+  //set to 0 or ALWAYS_WAIT to disable the timeout (it's disabled by default)
+  void set_recv_timeout_ms(const millis_t ms) { recv_timeout_ms = ms == ALWAYS_WAIT ? 0 : ms; }
 
   millis_t get_recv_timeout_ms() { return recv_timeout_ms; }
-
-  const millis_t ALWAYS_WAIT = -1ul; //-1 in base 2 is all 1s as unsigned
 
   //block for up to this long in send_packet() in binary mode, default 0, use ALWAYS_WAIT to block indefinitely
   //text mode sends always block until space is available in the Arduino serial send buffer
@@ -195,9 +195,9 @@ public:
   millis_t get_send_wait_ms() { return send_wait_ms; }
 
   //this must be called from the Arduino loop() method
-  //receive available input bytes from stream
+  //receive available input bytes from serial stream
   //if the end of a command is received then dispatch and handle it
-  //in binary mode this will also attempt to send any remaining response packet bytes, without blocking
+  //in binary mode then try to send remaining response packet bytes without blocking
   bool update() { return update_impl(); }
 
   //reset the command interpreter and the receive buffer
@@ -408,6 +408,8 @@ private:
 
   bool space_pending = false; //a space should be sent before the next returned value in text mode
 
+  uint8_t expect_ctrl_chars = 0; //received ESC char in text mode, ignore this many following VT100 control chars
+
   //unfortunately zero length arrays are technically not allowed
   //though many compilers won't complain unless in pedantic mode
   //send_buf is not used in text mode, and receive-only applications are possible in binary mode
@@ -518,9 +520,12 @@ private:
     if (in_str || in_chr) return fail(Error::BAD_ARG);
     while (j < recv_buf_sz) recv_buf[j++] = 0;
     recv_ptr = recv_buf;
+    while (*recv_ptr == 0) { //skip leading spaces, which are now 0s
+      if (++recv_ptr == recv_buf + recv_buf_sz) return end_cmd(true); //ignore empty command
+    }
+    uint8_t *tmp = recv_ptr;
     const char *cmd = reinterpret_cast<const char*>(next_tok(0));
-    if (!cmd) return end_cmd(true); //ignore empty command
-    recv_ptr = recv_buf;
+    recv_ptr = tmp; //first token returned to command handler should be the command token itself
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
     return fail(Error::BAD_CMD);
   }
@@ -533,7 +538,6 @@ private:
   const uint8_t *next_tok(const uint8_t binary_bytes) {
 #define FAIL { fail(Error::RECV_UNDERFLOW); return 0; }
     if (recv_ptr >= recv_buf + recv_buf_sz) FAIL;
-    if (!*recv_ptr) FAIL;
     const uint8_t *ret = recv_ptr;
     if (binary_mode && binary_bytes > 0) {
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
@@ -782,9 +786,8 @@ private:
     }
 
     if (hex) {
-      if (binary_mode && !check_write(2 * num_bytes)) return fail(Error::SEND_OVERFLOW);
       uint8_t * const write_start = send_write_ptr;
-      for (uint8_t i = 0; i < num_bytes; i++) { put(to_hex(v[i])); put(to_hex(v[i] >> 4)); }
+      for (uint8_t i = num_bytes; i > 0; i--) { put(to_hex(v[i-1] >> 4)); put(to_hex(v[i-1] & 0x0f)); }
       if (!send_read_ptr) send_read_ptr = write_start; //enable sending
       return true;
     }
@@ -1024,6 +1027,7 @@ private:
     if (!force && binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
+    expect_ctrl_chars = 0;
     err = Error::NONE;
     recv_ptr = recv_buf;
     send_read_ptr = 0;
@@ -1063,6 +1067,7 @@ private:
           } else ++recv_ptr;
 
         } else if (*recv_ptr == '\r' || *recv_ptr == '\n') { //text mode end of command
+          expect_ctrl_chars = 0;
           //interactive terminal programs like minicom will send '\r'
           //but if we only echo that, then the cursor will not advance to the next line
           if (txt_echo) { write_char('\r'); write_char('\n'); } //ignore echo errors
@@ -1076,12 +1081,27 @@ private:
           if (!ok) fail(Error::BAD_HANDLER);
           break;
         } else if (*recv_ptr == '\b') { //text mode backspace
+          expect_ctrl_chars = 0;
           if (recv_ptr > recv_buf) {
             if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_char(' '); vt100_move_rel(1, VT100_LEFT); }
             --recv_ptr;
           }
+        } else if (*recv_ptr == 27) { //text mode ESC
+          *recv_ptr = 0; //ignore it
+          expect_ctrl_chars = 2; //watch for two subsequent VT100 control chars
         } else { //text mode command character
+
+          //catch and ignore VT100 cursor movement sequences up [A, down [B, right [C, left [D
+          //these are sent by minicom when the user hits the arrow keys on the keyboard
+          //we unfortunately don't support command line editing with these
+          if ((expect_ctrl_chars == 2 && *recv_ptr == '[') ||
+              (expect_ctrl_chars == 1 && (*recv_ptr >= 'A' && *recv_ptr <= 'D'))) {
+            *recv_ptr = 0; //ignore it
+            --expect_ctrl_chars;
+          } else expect_ctrl_chars = 0;
+
           if (txt_echo) write_char(*recv_ptr);
+
           ++recv_ptr;
         }
       }
@@ -1090,6 +1110,7 @@ private:
     if (!ok) {
       recv_ptr = recv_buf;
       receiving = handling = space_pending = false;
+      expect_ctrl_chars = 0;
       if (!binary_mode) {
         if (err != Error::NONE) write_str_P(err_msg_P(err));
         send_txt_prompt(true);
@@ -1125,7 +1146,7 @@ private:
     handling = space_pending = false;
     recv_ptr = recv_buf;
     if (!binary_mode) { send_txt_prompt(); return true; }
-    return send_packet_impl();
+    else return send_packet_impl();
   }
 
   bool send_packet_impl() {

@@ -144,7 +144,7 @@ void sleep_ms(const uint32_t ms) { std::this_thread::sleep_for(std::chrono::mill
 void terminated() {
   if (std::current_exception()) {
     try { std::rethrow_exception(std::current_exception()); }
-    catch (const std::exception& e) { std::cerr << "Unhandled exception: " << e.what() << "\n"; }
+    catch (const std::exception& e) { std::cerr << "unhandled exception: " << e.what() << "\n"; }
   }
   if (exists(socket_path)) {
     std::cout << "closing UNIX socket\n";
@@ -225,9 +225,11 @@ int main(int argc, const char **argv) {
 
   int data_socket = accept(listen_socket, NULL, NULL);
   if (data_socket < 0) { perror("error accepting connection on UNIX socket"); exit(1); }
+  std::cout << "got connection on UNIX socket " << socket_path << "\n";
+
   fcntl(data_socket, F_SETFL, O_NONBLOCK);
-  
-  std::cout << "got connection on UNIX socket " << socket_path << ", resetting command interpreter\n";
+
+  std::cout << "resetting command interpreter\n";
   ams.reset();
   
   const uint32_t STATUS_MS = 2000;

@@ -3,9 +3,17 @@
 
 #define BAUD 115200
 
+#ifndef MAX_CMDS
 #define MAX_CMDS 64
+#endif
+
+#ifndef RECV_BUF_SZ
 #define RECV_BUF_SZ 256
+#endif
+
+#ifndef SEND_BUF_SZ
 #define SEND_BUF_SZ 256
+#endif
 
 #include <ArduMonSlave.h>
 
@@ -31,11 +39,13 @@ void show_error() {
 
 bool noop(AMS *ams) {
   if (!ams->recv()) show_error();
+  if (!ams->end_cmd()) show_error();
   return true;
 }
 
 bool help(AMS *ams) {
   if (!ams->send_cmds()) show_error();
+  if (!ams->end_cmd()) show_error();
   return true;
 }
 
@@ -152,25 +162,24 @@ void add_cmds() {
   ams.set_txt_prompt("demo>");
   ams.set_txt_echo(true);
 
-  uint8_t code = 0;
-  if (!ams.add_cmd_P(noop, PSTR("noop"), code++, "no operation")) show_error();
-  if (!ams.add_cmd_P(help, PSTR("help"), code++, "show commands")) show_error();
-  if (!ams.add_cmd_P(echo_char, PSTR("ec"), code++, "echo char")) show_error();
-  if (!ams.add_cmd_P(echo_str, PSTR("es"), code++, "echo str")) show_error();
-  if (!ams.add_cmd_P(echo_bool, PSTR("eb"), code++, "echo bool")) show_error();
-  if (!ams.add_cmd_P(echo_u8, PSTR("eu8"), code++, "echo uint8")) show_error();
-  if (!ams.add_cmd_P(echo_s8, PSTR("e8"), code++, "echo int8")) show_error();
-  if (!ams.add_cmd_P(echo_u16, PSTR("eu16"), code++, "echo uint16")) show_error();
-  if (!ams.add_cmd_P(echo_s16, PSTR("e16"), code++, "echo int16")) show_error();
-  if (!ams.add_cmd_P(echo_s32, PSTR("eu32"), code++, "echo uint32")) show_error();
-  if (!ams.add_cmd_P(echo_s32, PSTR("e32"), code++, "echo int32")) show_error();
+  if (!ams.add_cmd_P(noop, PSTR("noop"), "no operation")) show_error();
+  if (!ams.add_cmd_P(help, PSTR("help"), "show commands")) show_error();
+  if (!ams.add_cmd_P(echo_char, PSTR("ec"), "echo char")) show_error();
+  if (!ams.add_cmd_P(echo_str, PSTR("es"), "echo str")) show_error();
+  if (!ams.add_cmd_P(echo_bool, PSTR("eb"), "echo bool")) show_error();
+  if (!ams.add_cmd_P(echo_u8, PSTR("eu8"), "echo uint8")) show_error();
+  if (!ams.add_cmd_P(echo_s8, PSTR("e8"), "echo int8")) show_error();
+  if (!ams.add_cmd_P(echo_u16, PSTR("eu16"), "echo uint16")) show_error();
+  if (!ams.add_cmd_P(echo_s16, PSTR("e16"), "echo int16")) show_error();
+  if (!ams.add_cmd_P(echo_s32, PSTR("eu32"), "echo uint32")) show_error();
+  if (!ams.add_cmd_P(echo_s32, PSTR("e32"), "echo int32")) show_error();
 #ifdef WITH_INT64
-  if (!ams.add_cmd_P(echo_u64, PSTR("eu64"), code++, "echo uint64")) show_error();
-  if (!ams.add_cmd_P(echo_s64, PSTR("e64"), code++, "echo int64")) show_error();
+  if (!ams.add_cmd_P(echo_u64, PSTR("eu64"), "echo uint64")) show_error();
+  if (!ams.add_cmd_P(echo_s64, PSTR("e64"), "echo int64")) show_error();
 #endif
-  if (!ams.add_cmd_P(echo_float, PSTR("ef"), code++, "echo float")) show_error();
+  if (!ams.add_cmd_P(echo_float, PSTR("ef"), "echo float")) show_error();
 #ifdef WITH_DOUBLE
-  if (!ams.add_cmd_P(echo_double, PSTR("ed"), code++, "echo double")) show_error();
+  if (!ams.add_cmd_P(echo_double, PSTR("ed"), "echo double")) show_error();
 #endif
 }
 

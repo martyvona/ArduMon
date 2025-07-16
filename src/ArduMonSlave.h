@@ -36,7 +36,8 @@
 
 #include <ArduMonBase.h>
 
-template <uint8_t max_num_cmds, uint16_t recv_buf_sz, uint16_t send_buf_sz> class ArduMonSlave : public ArduMonBase {
+template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256>
+class ArduMonSlave : public ArduMonBase {
 public:
 
   enum class Error : uint8_t {
@@ -70,7 +71,7 @@ public:
 
   ArduMonSlave(Stream *s, const bool binary = false) : stream(s) {
     memset(cmds, 0, sizeof(cmds));
-    set_binary_mode(binary);
+    set_binary_mode_impl(binary, true, false);
   }
 
 #ifdef ARDUINO
@@ -98,7 +99,7 @@ public:
   uint16_t get_send_buf_size() { return send_buf_sz; }
 
   //binary mode: get packet size if currently sending a packet, else get number of bytes used so far in send buffer
-  //text mode: get number of bytes written to send buf but not yet sent
+  //text mode: return 0
   uint16_t get_send_buf_used() { return send_buf_used(); }
 
   //sugar for get_send_buf_size() - get_send_buf_used()
@@ -121,9 +122,24 @@ public:
     return add_cmd(handler, name, code, description, false);
   }
 
+  //sugar to add a command using the next available command code
+  bool add_cmd(const handler_t handler, const char *name, const char *description = 0) {
+    return add_cmd(handler, name, n_cmds, description);
+  }
+
+  //sugar to add a command with null name, for binary mode use only
+  bool add_cmd(const handler_t handler, uint8_t code, const char *description = 0) {
+    return add_cmd(handler, 0, code, description, false);
+  }
+
   //add a command with strings from program memory
   bool add_cmd_P(const handler_t handler, const char *name, uint8_t code = 0, const char *description = 0) {
     return add_cmd(handler, name, code, description, true);
+  }
+
+  //sugar to add a command using the next available command code
+  bool add_cmd_P(const handler_t handler, const char *name, const char *description = 0) {
+    return add_cmd_P(handler, name, n_cmds, description);
   }
 
   //does nothing if already in the requested mode
@@ -133,7 +149,7 @@ public:
 
   //the command interpreter and send and receive buffers are reset
   //in text mode if there is a prompt it is sent
-  void reset() { set_binary_mode_impl(binary_mode, true); }
+  void reset() { set_binary_mode_impl(binary_mode, true, true); }
 
   bool is_binary_mode() { return binary_mode; }
   bool is_txt_mode() { return !binary_mode; }
@@ -141,33 +157,44 @@ public:
   //enable or disable received character echo in text mode
   void set_txt_echo(const bool echo) { txt_echo = echo; }
 
-  //set prompt to 0 to disable it
-  //otherwise the new prompt is sent immediately iff a handler is not currently running
+  //set prompt to NULL to disable it
+  //otherwise the new prompt is sent immediately in text mode iff a handler is not currently running
   void set_txt_prompt(const char *prompt) { txt_prompt = prompt; txt_prompt_progmem = false; send_txt_prompt(); }
+
+  //set text prompt from a program memory string
   void set_txt_prompt_P(const char *prompt) { txt_prompt = prompt; txt_prompt_progmem = true; send_txt_prompt(); }
 
+  //set receive timeout
+  //if a command starts being received but is not finished by this timeout the command interpreter will reset
+  //this probably makes more sense for automation than for interactive use
   //if a command is currently being received the new timeout will not apply until the next command
   //set to 0 to disable the timeout (it's disabled by default)
   void set_recv_timeout_ms(const millis_t ms) { recv_timeout_ms = ms; }
 
   millis_t get_recv_timeout_ms() { return recv_timeout_ms; }
 
-  //block for up to this long in send_packet() or send(...) in text mode, default 0
+  const millis_t ALWAYS_WAIT = -1ul; //-1 in base 2 is all 1s as unsigned
+
+  //block for up to this long in send_packet() in binary mode, default 0, use ALWAYS_WAIT to block indefinitely
+  //text mode sends always block until space is available in the Arduino serial send buffer
   void set_send_wait_ms(const millis_t ms) { send_wait_ms = ms; }
 
   millis_t get_send_wait_ms() { return send_wait_ms; }
 
-  //receive available bytes up to end of command, if any, and then handle it
-  //then send available bytes, if any, while stream can accept them
+  //this must be called from the Arduino update() method
+  //receive available input bytes from stream
+  //if the end of a command is received then dispatch and handle it
+  //in binary mode this will also attempt to send any remaining response packet bytes, without blocking
   bool update() { return update_impl(); }
 
   //reset the command interpreter and the receive buffer
-  //then in text mode send the prompt, if any; in binary mode send_packet()
+  //in text mode then send the prompt, if any
+  //in binary mode send_packet()
   bool end_cmd(const bool ok = true) { return end_cmd_impl(ok); }
 
   //noop in text mode
   //in binary mode if the command handler has not written any bytes then noop
-  //otherwise compute packet checksum and length, disable writing send_buf, enable reading it, and pump_send_buf()
+  //otherwise compute packet checksum and length, disable writing send_buf, enable reading it, and start sending it
   //blocks for up to send_wait_ms
   bool send_packet() { return send_packet_impl(); }
 
@@ -182,6 +209,7 @@ public:
   bool is_receiving() { return receiving; }
 
   //skip the next received token in text mode; skip the next received byte in binary mode
+  //call this to skip over the received command token in text mode or the command code in binary mode
   bool recv() { return next_tok(1); }
 
   //receive a character
@@ -198,7 +226,7 @@ public:
     return false;
   }
 
-  //binary mode: receive a byte with value 0 or nonzero
+  //binary mode: receive a byte with value 0 (false) or nonzero (true)
   //text mode: receive "true", "false", "t", "f", "0", "1", "yes", "no", "y", "n" or uppercase equivalents
   bool recv(bool *v) { return parse_bool(next_tok(1), v); }
 
@@ -248,24 +276,25 @@ public:
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: append string to send buffer, not including terminating null
   //if len >= 0 then send len bytes instead of checking for null terminator in either mode
+  //8 bit clean if len >= 0, otherwise mostly 8 bit clean except for value 0 which is interpreted as a terminating null
   bool send_raw  (const char* v, const int16_t len = -1)  { return write_str(v, false, false, len); }
   bool send_raw_P(const char* v, const int16_t len = -1)  { return write_str(v, true, false, len); }
 
   enum class BoolStyle : uint8_t { TRUE_FALSE, TF, ZERO_ONE, YES_NO, YN };
 
-  //binary mode: send one byte with value 0 or 1
+  //binary mode: send one byte with value 0 (false) or 1 (true)
   //text mode: send space separator if necessary, then send boolean value in indicated style
   bool send(const bool v, const BoolStyle style = BoolStyle::TRUE_FALSE, const bool upper_case = false) {
     return send_txt_sep() && send_raw(v, style, upper_case);
   }
 
-  //binary mode: send one byte with value 0 or 1
+  //binary mode: send one byte with value 0 (false) or 1 (true)
   //text mode: send boolean value in indicated style
   bool send_raw(const bool v, const BoolStyle style = BoolStyle::TRUE_FALSE, const bool upper_case = false) {
     return write_bool(v, style, upper_case);
   }
 
-  //binary mode: send an integer of the indicated size
+  //binary mode: send a little-endian integer of the indicated size
   //text mode: send space separator if necessary, then send decimal or hexadecimal integer
   bool send(const  uint8_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
   bool send(const   int8_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
@@ -289,10 +318,10 @@ public:
   bool send_raw(const  int64_t v, const bool hex = false) { return write_int(BP(&v), true,  8, hex); }
 #undef BP
 
-  //binary mode: send float or double
+  //binary mode: send little-endian float or double bytes
   //text mode: send space separator if necessary, then send float or double as decimal or scientific
   //on AVR both double and float are 4 bytes by default; on other platforms double may be 8 bytes
-  //precision is the minimum number of fraction digits (i.e. after the decimal point0, right padded with 0s
+  //precision is the minimum number of fraction digits (i.e. after the decimal point), right padded with 0s
   //if precision is negative then automatically use the minimum number of fraction digits
   //width only applies to non-scientific; if positive then left-pad the result with spaces to the specified minimum
   bool send(const float v, bool scientific = false, int8_t precision = -1, int8_t width = -1) {
@@ -302,7 +331,7 @@ public:
     return send_txt_sep() && send_raw(v, scientific, precision, width);
   }
 
-  //binary mode: send float or double bytes
+  //binary mode: send little-endian float or double bytes
   //text mode: send float or double as decimal or scientific string
   //see further comments for send(float)
   bool send_raw(const float v, bool scientific = false, int8_t precision = -1, int8_t width = -1) {
@@ -366,30 +395,28 @@ private:
 
   bool space_pending = false; //a space should be sent before the next returned value in text mode
 
-  uint8_t recv_buf[recv_buf_sz], send_buf[send_buf_sz];
+  //unfortunately zero length arrays are technically not allowed
+  //though many compilers won't complain unless in pedantic mode
+  //send_buf is not used in text mode, and receive-only applications are possible in binary mode
+  //recv_buf is required to receive commands in both text and binary mode, but send-only applications are possible
+  uint8_t recv_buf[recv_buf_sz > 0 ? recv_buf_sz : 1], send_buf[send_buf_sz > 0 ? send_buf_sz : 1];
 
   //next available position in recv_buf while receiving a command
   //last received character when beginning to handle a command
   //start of next read while handling command
   uint8_t *recv_ptr = recv_buf;
 
-  //send_read_ptr is the next unsent byte in the send buffer; sending is disabled iff send_read_ptr is 0
-  //send_write_ptr is the next free spot in the send buffer; writing to send buffer is disabled if send_write_ptr is 0
-  //in txt mode send buf is circular; SEND_OVERFLOW iff send when send_write_ptr == send_read_ptr
-  //in binary mode SEND_OVERFLOW iff send when send_write_ptr == send_buf + send_buf_sz - 1 (reserved for checksum)
+  //send_buf is only used in binary mode
+  //send_read_ptr is the next unsent byte; sending is disabled iff send_read_ptr is 0
+  //send_write_ptr is the next free spot; writing to send_buf is disabled if send_write_ptr is 0
+  //SEND_OVERFLOW iff send when send_write_ptr == send_buf + send_buf_sz - 1 (reserved for checksum)
   uint8_t *send_read_ptr = 0, *send_write_ptr = send_buf;
 
-  //block for up to this long in send_packet() in binary mode or send(...) in text mode
+  //block for up to this long in pump_send_buf() in binary mode
   millis_t send_wait_ms = 0;
 
   struct Cmd {
-
-    handler_t handler;
-    const char *name;
-    uint8_t code;
-    const char *description;
-    bool progmem;
-
+    handler_t handler; const char *name; uint8_t code; const char *description; bool progmem;
     const bool is(const char *n) { return (progmem ? strcmp_P(n, name) : strcmp(n, name)) == 0; }
     const bool is_P(const char *n) { return (progmem ? ArduMonSlave::strcmp_PP(name, n) : strcmp_P(name, n)) == 0; }
   };
@@ -402,7 +429,10 @@ private:
   bool add_cmd(const handler_t handler, const char *name, uint8_t code, const char *description, const bool progmem) {
     if (n_cmds == max_num_cmds) return fail(Error::CMD_OVERFLOW);
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if ((progmem && cmds[i].is_P(name)) || (!progmem && cmds[i].is(name))) return fail(Error::CMD_OVERFLOW);
+      if (name) {
+        if ((progmem && cmds[i].is_P(name)) || (!progmem && cmds[i].is(name))) return fail(Error::CMD_OVERFLOW);
+      }
+      if (cmds[i].code == code) return fail(Error::CMD_OVERFLOW);
     }
     cmds[n_cmds].handler = handler;
     cmds[n_cmds].name = name;
@@ -478,6 +508,7 @@ private:
     if (cmd == 0) return end_cmd(true); //ignore empty command
     recv_ptr = recv_buf;
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
+    write_str_P(PSTR("unknown command"));
     return fail(Error::BAD_CMD);
   }
 
@@ -689,7 +720,7 @@ private:
   //in both cases assume string is supplied in program memory in uppercase, convert to lowercase iff to_lower is true
   bool write_case_str_P(const char *uppercase, const bool to_lower) {
     uint8_t len = 0; while (uppercase[len]) ++len;
-    if (!check_write(len + (binary_mode ? 1 : 0))) return fail(Error::SEND_OVERFLOW);
+    if (binary_mode && !check_write(len + 1)) return fail(Error::SEND_OVERFLOW);
     uint8_t * const write_start = send_write_ptr;
     for (uint8_t i = 0; i < len + 1; i++) {
       uint8_t c = pgm_read_byte(uppercase + i) + (to_lower ? 40 : 0); //'A' + 40 = 'a'
@@ -711,7 +742,7 @@ private:
     }
 
     if (hex) {
-      if (!check_write(2 * num_bytes)) return fail(Error::SEND_OVERFLOW);
+      if (binary_mode && !check_write(2 * num_bytes)) return fail(Error::SEND_OVERFLOW);
       uint8_t * const write_start = send_write_ptr;
       for (uint8_t i = 0; i < num_bytes; i++) { put(to_hex(v[i])); put(to_hex(v[i] >> 4)); }
       if (!send_read_ptr) send_read_ptr = write_start; //enable sending
@@ -856,7 +887,6 @@ private:
       const char esc = cook ? escape(c) : 0;
       const bool quote = cook && (isspace(c) || esc);
       uint8_t * const write_start = send_write_ptr;
-      if (!check_write(1 + (esc ? 1 : 0) + (quote ? 2 : 0))) return fail(Error::SEND_OVERFLOW);
       if (quote) put('\'');
       if (esc) { put('\\'); put(esc); } else put(c);
       if (quote) put('\'');
@@ -880,7 +910,7 @@ private:
       ++n;
     }
 
-    if (!check_write((len > 0) ? len : (n + n_esc + (quote ? 2 : 0) + (binary_mode ? 1 : 0)))) {
+    if (binary_mode && !check_write((len > 0) ? len : (n + n_esc + (quote ? 2 : 0) + 1))) {
       return fail(Error::SEND_OVERFLOW);
     }
 
@@ -913,37 +943,29 @@ private:
   bool write_str_P(const char *v, const bool cook = false, const int16_t len = -1) {
     return write_str(v, true, cook, len);
   }
-    
-  //check if there are at least n free bytes available in send_buf
+
+  //text mode: return true
+  //binary mode: check if there are at least n free bytes available in send_buf
   bool check_write(const uint16_t n) {
+    if (!binary_mode) return true;
     if (!send_write_ptr) return false;
-    if (binary_mode) { if (send_write_ptr + n >= send_buf + send_buf_sz) return false; } //reserve byte for checksum
-    else if (send_read_ptr != 0) { //circular send buf in txt mode
-      const uint16_t used = send_read_ptr <= send_write_ptr ?
-        send_write_ptr - send_read_ptr : send_buf_sz - (send_read_ptr - send_write_ptr);
-      return n <= send_buf_sz - used;
-    } else if (send_write_ptr + n > send_buf + send_buf_sz) {
-      return false;
-    }
+    if (send_write_ptr + n >= send_buf + send_buf_sz) return false; //reserve byte for checksum
     return true;
   }
 
-  //append a byte to send_buf
-  //advances send_write_ptr; send_read_ptr is updated in the write(...) functions which call this
+  //text mode: send byte to output serial stream, blocking if necessary
+  //binary mode: append a byte to send_buf and advance send_write_ptr
+  //(send_read_ptr is updated in the write(...) functions which call this)
   //assumes check_write() already returned true
   void put(const uint8_t c) {
-    *send_write_ptr++ = c;
-    if (!binary_mode && send_write_ptr == send_buf + send_buf_sz) send_write_ptr = send_buf; //send_buf circular in txt
+    if (binary_mode) *send_write_ptr++ = c;
+    else stream->write(c);
   }
 
   //see get_send_buf_used()
   uint16_t send_buf_used() {
-    if (binary_mode) { return send_read_ptr ? send_buf[0] : send_write_ptr - send_buf + 1; } //+1 for checksum
-    if (send_read_ptr != 0) { //circular send buf in txt mode
-      return send_read_ptr <= send_write_ptr ?
-        send_write_ptr - send_read_ptr : send_buf_sz - (send_read_ptr - send_write_ptr);
-    }
-    return send_write_ptr - send_buf;
+    if (!binary_mode) return 0;
+    return send_read_ptr ? send_buf[0] : send_write_ptr - send_buf + 1; //+1 for checksum
   }
 
   //see get_recv_buf_used()
@@ -957,7 +979,7 @@ private:
   }
 
   //see set_binary_mode(), reset()
-  void set_binary_mode_impl(const bool binary, const bool force = false) {
+  void set_binary_mode_impl(const bool binary, const bool force = false, const bool with_crlf = false) {
     if (!force && binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
@@ -965,7 +987,7 @@ private:
     recv_ptr = recv_buf;
     send_read_ptr = 0;
     if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
-    else { send_write_ptr = send_buf; send_txt_prompt(true); }
+    else { send_write_ptr = send_buf; send_txt_prompt(with_crlf); }
   }
 
   //see update()
@@ -1011,9 +1033,11 @@ private:
           ok = handle_txt_command();
           if (!ok) fail(Error::BAD_HANDLER);
           break;
-        } else if (*recv_ptr == '\b' && recv_ptr > recv_buf) { //text mode backspace
-          if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_char(' '); vt100_move_rel(1, VT100_LEFT); }
-          --recv_ptr;
+        } else if (*recv_ptr == '\b') { //text mode backspace
+          if (recv_ptr > recv_buf) {
+            if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_char(' '); vt100_move_rel(1, VT100_LEFT); }
+            --recv_ptr;
+          }
         } else { //text mode command character
           if (txt_echo) write_char(*recv_ptr);
           ++recv_ptr;
@@ -1033,26 +1057,19 @@ private:
   }
 
   void pump_send_buf(const millis_t wait_ms) {
+    if (!binary_mode) return;
     const millis_t deadline = millis() + wait_ms;
     do {
       while (send_read_ptr != 0 && stream->availableForWrite()) {
         stream->write(*send_read_ptr++);
-        if (binary_mode) {
-          if (send_read_ptr == send_buf + send_buf[0]) { //sent entire packet
-            send_read_ptr = 0; //disable reading from send buf
-            send_write_ptr = send_buf + 1; //enable writing to send buf, reserve first byte for length
-          }
-        } else {
-          if (send_read_ptr == send_buf + send_buf_sz) send_read_ptr = send_buf; //wrap read ptr in circular buffer
-          if (send_read_ptr == send_write_ptr) { //circular send buf empty
-            send_read_ptr = 0; //disable reading from send buf
-            send_write_ptr = send_buf; //needed by check_write
-          }
+        if (send_read_ptr == send_buf + send_buf[0]) { //sent entire packet
+          send_read_ptr = 0; //disable reading from send buf
+          send_write_ptr = send_buf + 1; //enable writing to send buf, reserve first byte for length
         }
       }
       //reduce repetitive calls to millis() which temporarily disables interrupts
       if (send_read_ptr != 0 && wait_ms > 0) delayMicroseconds(10);
-    } while (send_read_ptr != 0 && wait_ms > 0 && millis() < deadline);
+    } while (send_read_ptr != 0 && wait_ms > 0 && (wait_ms == ALWAYS_WAIT || millis() < deadline));
   }
 
   void pump_send_buf() { pump_send_buf(send_wait_ms); }
@@ -1063,7 +1080,7 @@ private:
     handling = space_pending = false;
     recv_ptr = recv_buf;
     if (!binary_mode) { send_txt_prompt(); return true; }
-    return send_packet();
+    return send_packet_impl();
   }
 
   bool send_packet_impl() {
@@ -1085,7 +1102,7 @@ private:
   bool send_cmds_impl() {
     if (binary_mode) return true;
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if (!write_str(cmds[i].name, cmds[i].progmem)) return false;
+      if (cmds[i].name && !write_str(cmds[i].name, cmds[i].progmem)) return false;
       if (!write_char(' ')) return false;
       if (!write_char(to_hex(cmds[i].code >> 4))) return false;
       if (!write_char(to_hex(cmds[i].code))) return false;

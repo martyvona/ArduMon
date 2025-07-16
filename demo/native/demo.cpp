@@ -43,6 +43,8 @@
 #include <thread>
 #include <signal.h>
 
+#include <ArduMonBase.h>
+
 template <size_t capacity> class CircBuf {
 public:
 
@@ -80,8 +82,6 @@ private:
   size_t write_idx = 0, read_idx = capacity;
 };
 
-#include <ArduMonBase.h>
-
 template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonBase::Stream {
 public :
 
@@ -97,16 +97,25 @@ public :
   uint16_t write(uint8_t val) { out.put(val); return 1; }
 };
 
+//emulate the 64 byte Arduino serial input buffer
 #define SERIAL_IN_BUF_SZ 64
-#define SERIAL_OUT_BUF_SZ 64
+
+//since this demo is single threaded
+//and doesn't implement the equivalent of the Arduino serial send interrupt
+//use a large output buffer so that command handlers which send a lot, like "help", do not hang
+#define SERIAL_OUT_BUF_SZ 2048
+
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
+
+#define WITH_INT64
+#define WITH_DOUBLE
+#include "../demo.ino"
+//demo.ino defines the global ArduMonSlave isntance ams
 
 int listen_socket;
 std::string socket_path;
-
-#include "../demo.ino"
-
 bool quit;
+
 bool quit_cmd(AMS *ams) { quit = true; return true; }
 
 void usage() { std::cerr << "USAGE: demo [-b|--binary] <unix_socket_filename>\n"; exit(1); }
@@ -141,14 +150,14 @@ void terminated() {
     close(listen_socket);
     unlink(socket_path.c_str());
   }
-  exit (1);
+  exit(1);
 }
-
 
 void terminate_handler(int s) { terminated(); }
 
-
 int main(int argc, const char **argv) {
+
+  if (argc < 2) usage();
 
   std::set_terminate(terminated);
 
@@ -158,14 +167,12 @@ int main(int argc, const char **argv) {
   sig_handler.sa_flags = 0;
   sigaction(SIGINT, &sig_handler, NULL);
 
-  if (argc < 2) usage();
-
   const char *socket_filename;
-
-  bool binary_mode = false;
+  bool binary = false, verbose = false;
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
-      if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary_mode = true;
+      if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true;
+      else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
       else usage();
     } else socket_filename = argv[i];
   }
@@ -174,11 +181,11 @@ int main(int argc, const char **argv) {
 
   std::cout << "adding demo commands\n";
   add_cmds();
-  if (!ams.add_cmd(quit_cmd, "quit", ams.get_num_cmds(), "quit")) show_error();
+  if (!ams.add_cmd(quit_cmd, "quit", "quit")) show_error();
   std::cout << "added "
             << static_cast<int>(ams.get_num_cmds()) << "/" << static_cast<int>(ams.get_max_num_cmds()) << " commands\n";
 
-  if (binary_mode) {
+  if (binary) {
     std::cout << "switching to binary mode\n";
     ams.set_binary_mode(true);
   } else std::cout << "proceeding in text mode\n";
@@ -233,7 +240,7 @@ int main(int argc, const char **argv) {
       else if (errno == EAGAIN) ret = 0; //nonblocking read failed due to nothing available to read
       else { perror("error reading from demo client"); exit(1); }
     }
-    if (ret > 0) std::cout << "read " << ret << " bytes from demo client\n" << std::flush;
+    if (verbose && ret > 0) std::cout << "read " << ret << " bytes from demo client\n" << std::flush;
 
     for (size_t i = 0; i < ret; i++) demo_stream.in.put(buf[i]);
     
@@ -256,17 +263,17 @@ int main(int argc, const char **argv) {
           else if (errno == EAGAIN) ret = 0; //nonblocking write failed
           else { perror("error writing to demo client"); exit(1); }
         }
-        if (ret > 0) std::cout << "wrote " << ret << " bytes to demo client\n" << std::flush;
+        if (verbose && ret > 0) std::cout << "wrote " << ret << " bytes to demo client\n" << std::flush;
         nw += ret;
         if (ns - nw > 0) {
           sleep_ms(1);
-          if (--ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
+          if (verbose && --ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
         }
       }
     }
     
     sleep_ms(1);
-    if (--ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
+    if (verbose && --ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
   }
 
   if (!quit) std::cout << "lost connection on UNIX socket\n";

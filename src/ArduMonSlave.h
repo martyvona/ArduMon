@@ -335,14 +335,15 @@ public:
   //text mode: move VT100 cursor n places in dir
   bool vt100_move_rel(const uint16_t n, const char dir) {
     if (binary_mode) return true;
-    return send_raw('\x1B') && send_raw('[') && send_raw(n) && send_raw(dir);
+    return write_char('\x1B') && write_char('[') && send_raw(n) && write_char(dir);
   }
 
   //binary mode: noop
   //text mode: move VT100 cursor to (row, col)
   bool vt100_move_abs(const uint16_t row, const uint16_t col) {
     if (binary_mode) return true;
-    return send_raw('\x1B') && send_raw('[') && send_raw(row) && send_raw(';') && send_raw(col) && send_raw('H');
+    return write_char('\x1B') && write_char('[') && send_raw(row) && write_char(';') &&
+      send_raw(col) && write_char('H');
   }
 
 private:
@@ -413,12 +414,12 @@ private:
   }
 
   //does nothing if binary_mode, if txt_prompt is null, or if currently handling
-  //otherwise sends CRLF followed by txt_prompt and a space
-  void send_txt_prompt() {
+  //otherwise sends optional CRLF followed by txt_prompt and a space
+  void send_txt_prompt(const bool with_crlf = false) {
     if (!binary_mode && txt_prompt != 0 && !handling) {
-      send_raw('\r'); send_raw('\n');
-      if (txt_prompt_progmem) send_raw_P(txt_prompt); else send_raw(txt_prompt);
-      send_raw(' ');
+      if (with_crlf) { write_char('\r'); write_char('\n'); }
+      if (txt_prompt_progmem) write_str_P(txt_prompt); else write_str(txt_prompt);
+      write_char(' ');
     }
   }
 
@@ -427,7 +428,7 @@ private:
   //then reset space_pending = true
   bool send_txt_sep() {
     if (binary_mode) return true;
-    bool ok = space_pending ? send_raw(' ') : true;
+    bool ok = space_pending ? write_char(' ') : true;
     space_pending = true;
     return ok;
   }
@@ -452,12 +453,14 @@ private:
   //otherwise lookup first token as command name, if not found then BAD_CMD
   //otherwise set recv_ptr = recv_buf and call command handler
   bool handle_txt_command() {
-    const uint8_t len = recv_ptr - recv_buf + 1;
+    const uint16_t len = recv_ptr - recv_buf + 1;
     if (len == 1) return end_cmd(true); //ignore empty command, e.g. if received just '\r' or '\n'
     bool in_str = false, in_chr = false;
-    uint8_t j = 0; //write index
-    for (uint8_t i = 0; i < len && j < len; i++, j++) {
+    uint16_t j = 0; //write index
+    for (uint16_t i = 0; i < len && j < len; i++, j++) {
+
       char c = reinterpret_cast<char *>(recv_buf)[i];
+
       if (c == '\\' && (in_str || in_chr)) {
         if (i == len - 1) return fail(Error::BAD_ARG);
         c = unescape(recv_buf[++i]);
@@ -465,9 +468,11 @@ private:
       else if (!in_chr && c == '"') { in_str = !in_str; c = 0; } //start/end of string
       else if (!in_str && c == '\'') { in_chr = !in_chr;  c = 0; } //start/end of char
       else if (!in_str && !in_chr && isspace(c)) c = 0; //split on whitespace including terminating '\r' or '\n'
+
       if (!in_str && !in_chr && c == '#') while (j < len) recv_buf[j++] = 0; //ignore comment
       else recv_buf[j] = c;
     }
+    while (j < recv_buf_sz) recv_buf[j++] = 0;
     recv_ptr = recv_buf;
     const char *cmd = reinterpret_cast<const char*>(next_tok(0));
     if (cmd == 0) return end_cmd(true); //ignore empty command
@@ -482,16 +487,16 @@ private:
   //unless there are not that many bytes remaining in the received packet, in which case return 0
   //if binary_bytes is 0 in binary mode then advance to the end of null terminated string
   const uint8_t *next_tok(const uint8_t binary_bytes) {
-#define FAIL fail(Error::RECV_UNDERFLOW); return 0
-    if (recv_ptr >= recv_buf + recv_buf_sz) FAIL;
+#define FAIL { fail(Error::RECV_UNDERFLOW); return 0; }
+    if (recv_ptr >= recv_buf + recv_buf_sz) FAIL
     const uint8_t *ret = recv_ptr;
     if (binary_mode && binary_bytes > 0) {
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
-      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL;
+      if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL
       recv_ptr += binary_bytes;
     } else {
-      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip non-null characters of current token
-      while (!*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) break; //skip null separators
+      while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL //skip non-null characters of current token
+      while (*recv_ptr == 0) if (++recv_ptr == recv_buf + recv_buf_sz) break; //skip null separators
     }
     return ret;
 #undef FAIL
@@ -863,7 +868,7 @@ private:
   //binary mode: append null terminated string to send buffer, including terminating null
   //text mode: if cook quote and escape iff necessary, then append string to send buffer, not including terminating null
   //if len >= 0 then send len raw bytes instead of checking for null terminator in either mode
-  bool write_str(const uint8_t *v, const bool progmem, const bool cook = false, const int16_t len = -1) {
+  bool write_str(const uint8_t *v, const bool progmem = false, const bool cook = false, const int16_t len = -1) {
 
     if (len == 0) return true;
 
@@ -897,8 +902,16 @@ private:
     return true;
   }
 
-  bool write_str(const char *v, const bool progmem, const bool cook = false, const int16_t len = -1) {
+  bool write_str_P(const uint8_t *v, const bool cook = false, const int16_t len = -1) {
+    return write_str_P(v, true, cook, len);
+  }
+
+  bool write_str(const char *v, const bool progmem = false, const bool cook = false, const int16_t len = -1) {
     return write_str(reinterpret_cast<const uint8_t*>(v), progmem, cook, len);
+  }
+
+  bool write_str_P(const char *v, const bool cook = false, const int16_t len = -1) {
+    return write_str(v, true, cook, len);
   }
     
   //check if there are at least n free bytes available in send_buf
@@ -909,7 +922,9 @@ private:
       const uint16_t used = send_read_ptr <= send_write_ptr ?
         send_write_ptr - send_read_ptr : send_buf_sz - (send_read_ptr - send_write_ptr);
       return n <= send_buf_sz - used;
-    } else if (send_write_ptr + n > send_buf + send_buf_sz) return false;
+    } else if (send_write_ptr + n > send_buf + send_buf_sz) {
+      return false;
+    }
     return true;
   }
 
@@ -950,7 +965,7 @@ private:
     recv_ptr = recv_buf;
     send_read_ptr = 0;
     if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
-    else { send_write_ptr = send_buf; send_txt_prompt(); }
+    else { send_write_ptr = send_buf; send_txt_prompt(true); }
   }
 
   //see update()
@@ -986,7 +1001,7 @@ private:
         } else if (*recv_ptr == '\r' || *recv_ptr == '\n') { //text mode end of command
           //interactive terminal programs like minicom will send '\r'
           //but if we only echo that, then the cursor will not advance to the next line
-          if (txt_echo) { send_raw('\r'); send_raw('\n'); } //ignore echo errors
+          if (txt_echo) { write_char('\r'); write_char('\n'); } //ignore echo errors
           //we also want to handle cases where automation is sending commands e.g. from a script or canned text file
           //in that situation the newline could be platform dependent, e.g. '\n' on Unix and OS X, "\r\n" on Windows
           //if we receive "\r\n" that will just incur an extra empty command
@@ -997,10 +1012,10 @@ private:
           if (!ok) fail(Error::BAD_HANDLER);
           break;
         } else if (*recv_ptr == '\b' && recv_ptr > recv_buf) { //text mode backspace
-          if (txt_echo) { vt100_move_rel(1, VT100_LEFT); send_raw(' '); vt100_move_rel(1, VT100_LEFT); }
+          if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_char(' '); vt100_move_rel(1, VT100_LEFT); }
           --recv_ptr;
         } else { //text mode command character
-          if (txt_echo) send_raw(*recv_ptr);
+          if (txt_echo) write_char(*recv_ptr);
           ++recv_ptr;
         }
       }
@@ -1009,7 +1024,7 @@ private:
     if (!ok) {
       recv_ptr = recv_buf;
       receiving = handling = space_pending = false;
-      if (!binary_mode) send_txt_prompt();
+      if (!binary_mode) send_txt_prompt(true);
     }
 
     pump_send_buf(0);

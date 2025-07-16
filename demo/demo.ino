@@ -148,6 +148,10 @@ bool echo_double(AMS *ams) {
 #endif
 
 void add_cmds() {
+
+  ams.set_txt_prompt("demo>");
+  ams.set_txt_echo(true);
+
   uint8_t code = 0;
   if (!ams.add_cmd_P(noop, PSTR("noop"), code++, "no operation")) show_error();
   if (!ams.add_cmd_P(help, PSTR("help"), code++, "show commands")) show_error();
@@ -173,8 +177,6 @@ void add_cmds() {
 #ifdef ARDUINO
 void setup() {
   Serial.begin(BAUD);
-  ams.set_txt_prompt("demo>");
-  ams.set_txt_echo(true);
   add_cmds();
 }
 

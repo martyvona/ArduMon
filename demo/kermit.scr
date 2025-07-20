@@ -1,0 +1,10 @@
+#!/usr/bin/env kermit +
+# USAGE: ./kermit.scr PORT
+set modem type none
+set carrier-watch off
+set line \%1
+set speed \%2
+set flow none
+set parity none
+set stop-bits 1
+connect

@@ -10,7 +10,7 @@ Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
 
 [MIT License](./LICENSE.txt)
 
-Once upon a time, it was not uncommon during microcontroller firmware development to implement a *monitor*, which was basically a command line interface (CLI) exposed by the firmware over a serial port.  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
+Once upon a time, it was not uncommon during microcontroller firmware development to implement a *firmware monitor* as a a command line interface (CLI) exposed by the firmware over a serial port.  (Terminology: the word *monitor* has been used both for microcontroller firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting) to it.)  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
 
 *ArduMon* is yet another one of these, but with a few features that I didn't see in most of the existing ones:
 
@@ -21,8 +21,8 @@ Once upon a time, it was not uncommon during microcontroller firmware developmen
 ArduMon also
 * is header only
 * is 8 bit AVR compatible
-* supports ESP32 and STM32
-* can be built for the native host (OS X or Linux)
+* supports AVR, ESP32, and STM32 Arduino compatible boards
+* can optionally also be built for PC: OS X, Linux, [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install)
 * can have a relatively low memory footprint (configurable)
 * uses no heap allocations.
 
@@ -112,7 +112,7 @@ In binary mode a command handler is called when the full length of a packet with
 
 Multibyte quantities are read and written in little endian byte order in binary mode, which matches the endianness of the architectures this library is intended to target.  (Compilation will intentionally fail on a big endian target.)
 
-## Building
+## Building the Demo
 
 OS X:
 ```
@@ -120,7 +120,7 @@ brew install arduino-cli
 softwareupdate --install-rosetta
 ```
 
-Linux (including Raspbian) - install into `~/bin`:
+Linux (including Raspbian and WSL) - install into `~/bin`:
 ```
 cd ~
 curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
@@ -133,22 +133,134 @@ arduino-cli config init --additional-urls https://github.com/stm32duino/BoardMan
 arduino-cli core update-index
 arduino-cli core list --all
 arduino-cli core install arduino:avr
-arduino-cli core install arduino:esp32
-arduino-cli core install esp32:esp32
-arduino-cli core install STMicroelectronics:stm32
+arduino-cli core install arduino:esp32 # for e.g. Arduino Nano ESP32
+arduino-cli core install esp32:esp32 # for e.g. cheap yellow display
+arduino-cli core install STMicroelectronics:stm32 # for STM32 boards including BlackPill, Nucleo32, Nucleo64, etc
 arduino-cli board listall
 ```
 
 Compile the demo for AVR, ESP32, and STM32:
 ```
 cd demo
-./build-avr.sh
-./build-esp32.sh
-./build-stm32.sh
+./build-avr.sh uno # or replace uno with nano or any board in arduino-cli board listall | grep arduino:avr
+./build-esp32.sh arduino:esp32:nano_nora
+./build-esp32.sh esp32:esp32:esp32 # for CYD; or replace with any board in arduino-cli board listall | grep esp32:esp32
+./build-stm32.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE # or any board in arduino-cli board listall | grep stm32
+./build-stm32.sh STMicroelectronics:stm32:Nucleo_64 NUCLEO_F411RE # or any part number in arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
 ```
 
-Compile demo for native (OS X or Linux):
+Compile demo for native host (OS X, Linux, WSL):
 ```
 cd demo/native
 ./build-native.sh
 ```
+
+## Uploading the Demo
+
+Attach your Arduino using a USB cable, then verify you can see it:
+
+```
+arduino-cli board list # look for /dev/cu.usb* or /dev/ttyS*
+```
+
+### Upload the Demo for AVR
+
+```
+cd demo
+./upload-avr.sh arduino:avr:uno /dev/cu.usb* # replace cu.usb* with ttyS* on Linux/WSL
+```
+
+### Upload the Demo for ESP32 CYD (Cheap Yellow Display)
+
+Attach the CYD by USB. Note that some CYD variants have a [USB-C port which does not work properly](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#the-usb-c-port-doesnt-work) with USB C-C cables; try a USB A-C cable instead.
+
+You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connected to port P1 on the CYD, push the reset button on the CYD, then the boot button, then release reset, then release boot.  However, there are several caveats with this method.  The [ESP32-2432S028 CYD with both USB micro and USB C ports](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#my-cyd-has-two-usb-ports) appears to have a design flaw where the on-board CH340C USB to serial chip holds the RX line high even when USB is not connected (this also probably applies to the [original CYD with only USB micro](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#what-is-a-cheap-yellow-display-cyd)).  This can be corrected with a board modification to create a [diode-OR](https://en.wikipedia.org/wiki/Diode-or_circuit) as shown in [this photo](./photos/CYD-diode-or.jpg), though this requires some tricky soldering and would be challenging without a microscope: remove the 100 Ohm resistor connected to the RX pin on P1 and replace it with any standard signal diode, e.g. 1N4148, with the cathode attached to the RX pin on P1; cut the trace leading to pin 2 on the CH340C right next to the IC, then bridge that cut with another of the same type of diode, with its cathode attached to the CH340C.  This diode arrangement also solves a secondary issue, which is that the P1 RX pin is not 5V tolerant, since the ESP32 input pin is itself not 5V tolerant.  The diode-OR [resolves this](https://forum.arduino.cc/t/5v-to-3-3v-logic-signal-diodes-to-drop-voltage/372343/9) by relying on the internal pullup on the ESP32 RX pin to bring it high.  Some other CYD variants have a 0 Ohm resistor installed instead of the 100 Ohm one on the P1 RX pin, and probably some other changes as well.  Those *may* work unmodified, but they likely still have the issue with applying 5V to RX (which may work in practice, but is out of spec).  So, either use a [USB-to-serial](./photos/CYD-3_3V-adapter.jpg) adapter [capable of 3.3V](https://www.amazon.com/dp/B087RJ7X32), or put a [diode in-line](./photos/CYD-inline-diode.jpg) with its anode attached to the P1 RX pin.
+
+```
+cd demo
+./upload-esp32.sh esp32:esp32:esp32 /dev/cu.usb* # replace cu.usb* with ttyS* on Linux/WSL
+```
+
+### Upload the Demo for STM32
+
+arduino-cli supports uploading to STM32 boards in several different ways.  If you are using a board like the STM32F411CEU6 [BlackPill](https://www.adafruit.com/product/4877) ([DFRobot](https://www.dfrobot.com/product-2338.html
+), [Amazon](https://www.amazon.com/dp/B09V7GCMRX)) you can use USB device firmware upgrade (DFU) mode.  You will first need to install the [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) software.  Then:
+
+```
+cd demo
+upload-stm32-dfu.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE
+```
+
+If you are using one of the many [Nucleo](https://www.st.com/en/evaluation-tools/stm32-nucleo-boards.html) boards, DFU mode is not available (to my knowledge), but you can use either USB mass storage mode or serial wire debug (SWD).  Mass storage does not require STM32CubeProgrammer to be installed:
+
+```
+cd demo
+upload-stm32-mass-storage.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
+```
+
+SWD uploading *does* require STM32CubeProgrammer to be installed, but for Nucleo boards does *not* require a separate hardware dongle:
+
+```
+cd demo
+upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
+```
+
+SWD mode can also be used on boards like the BlackPill, but does require a separate hardware dongle like like [ST-LINK V2](https://www.amazon.com/dp/B07SQV6VLZ) or [ST-LINK V3](https://www.dalbert.net/stlink-v3-minie).  Be aware that you may want to check if the firmware on the dongle needs to be upgraded first with [this tool](https://www.st.com/en/development-tools/stsw-link007.html).
+
+## Connecting
+
+This section explains how to interact with an Arduino running ArduMon using a terminal emulator.  This assumes you have the Arduino connected to your computer, typically with a USB cable or USB-to-serial adapter.  If you are using a CYD, see the [above caveats](#upload-the-demo-for-esp32-cyd-cheap-yellow-display) about the functionality of the USB-C and P1 (TTL serial) ports.
+
+First determine the serial port device on your computer corresponding to your Arduino:
+```
+arduino-cli board list # look for /dev/cu.usb* on OS X or /dev/ttyS* on Linux/WSL
+```
+
+The example commands below expect there to be exactly one Arduino connected; if there is more than one then you will need to specify the one to use exactly instead of using a wildcard as in the example commands below.
+
+### Connecting with Minicom
+
+To install [minicom](https://en.wikipedia.org/wiki/Minicom) on OS X:
+
+```
+brew install minicom
+```
+
+```
+minicom -D /dev/cu.usb* -b 115200 # substitute your port and baud rate if necessary
+```
+
+To exit minicom hit option-Z then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
+
+### Connecting with Screen
+
+```
+screen /dev/cu.usb* 115200 # substitute your port and baud rate if necessary
+```
+
+To exit screen hit ctrl-A then ctrl-\ then Y.
+
+### Connecting with C-Kermit
+
+To install [c-kermit](https://www.kermitproject.org/ck90.html) on OS X:
+
+```
+brew install c-kermit
+```
+
+```
+cd demo
+./kermit.scr /dev/cu.usb* 115200 # substitute your port and baud rate if necessary
+```
+
+To exit kermit hit ctrl-\ then Q.
+
+### Connecting with `arduino-cli monitor`
+
+```
+arduino-cli monitor --port /dev/cu.usb* --config 115200 --quiet --raw # substitute your port and baud rate if necessary
+```
+
+To exit the arduino-cli monitor hit ctrl-C.  You may need to then enter the `reset` command to reinitialize your terminal.
+
+These options should also be appliccable to using the serial monitor in the Arduino IDE.

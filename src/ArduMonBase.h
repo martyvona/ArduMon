@@ -23,13 +23,13 @@
  */
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <ctype.h>
-#include <stdlib.h>
 
 #ifndef ARDUINO
-#include <sys/time.h>
+#include <time.h>
 #endif
 
 #if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
@@ -40,6 +40,11 @@ class ArduMonBase {
 public:
 
   typedef unsigned long millis_t;
+
+#ifndef ARDUINO
+  typedef char __FlashStringHelper;
+#endif
+  typedef __FlashStringHelper FSH;
 
 #ifndef ARDUINO
   class Stream {
@@ -61,31 +66,51 @@ protected:
     return true;
   }
 
+  static const char * CCS(const void *s) { return reinterpret_cast<const char*>(s); }
+
+  static const FSH * CFSH(const void *s) { return reinterpret_cast<const FSH*>(s); }
+
+  static uint8_t * BP(void *p) { return reinterpret_cast<uint8_t*>(p); }
+
+  static const uint8_t * BP(const void *p) { return reinterpret_cast<const uint8_t*>(p); }
+
+  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
+  static int strcmp_PP(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    while (true) {
+      char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
+      if (ca != cb) return ca - cb;
+      if (!ca) return 0;
+    }
+  }
+
 #ifndef ARDUINO
 
   //shims for building on native host, currently supports OS X and Linux
 
-  template <typename T> static T pgm_read_byte(const T *a) { return *a; }
+  static const FSH *F(const char *p) { return p; }
+
+  template <typename T> static T pgm_read_byte(const T *p) { return *p; }
 
   static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
 
-  static const char *PSTR(const char *p) { return p; }
-
-  uint32_t millis() {
-    struct timeval tv;
-    gettimeofday(&tv,NULL);
-    uint64_t now_ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+  millis_t millis() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
     static uint64_t start_ms = now_ms;
     return now_ms - start_ms;
   }
 
   void delayMicroseconds(uint16_t us) {
-    struct timeval tv;
-    gettimeofday(&tv,NULL);
-    uint64_t start_us = tv.tv_sec * 1000000 + tv.tv_usec, now_us;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t start_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul, now_us;
     do {
-      gettimeofday(&tv,NULL);
-      now_us = tv.tv_sec * 1000000 + tv.tv_usec;
+      clock_gettime(CLOCK_MONOTONIC, &ts);
+      now_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul;
     } while (now_us - start_us < us);
   }
 #endif

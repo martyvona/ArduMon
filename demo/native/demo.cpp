@@ -24,23 +24,23 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <cstring>
+#include <iostream>
+#include <cstdio>
+#include <cstdlib>
+#include <algorithm>
+#include <chrono>
+#include <thread>
 #include <stdexcept>
 #include <exception>
-#include <string>
-#include <string.h>
-#include <iostream>
 #include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <algorithm>
-#include <chrono>
-#include <thread>
 #include <signal.h>
 
 #include <ArduMonBase.h>
@@ -182,7 +182,7 @@ int main(int argc, const char **argv) {
 
   std::cout << "adding demo commands\n";
   setup();
-  if (!ams.add_cmd(quit_cmd, "quit", "quit")) show_error();
+  if (!ams.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error();
   std::cout << "added "
             << static_cast<int>(ams.get_num_cmds()) << "/" << static_cast<int>(ams.get_max_num_cmds()) << " commands\n";
 
@@ -251,7 +251,7 @@ int main(int argc, const char **argv) {
     
     AMS::Error e = ams.get_err();
     if (e != AMS::Error::NONE) {
-      std::cerr << "command interpreter error: " << ams.err_msg_P(e) << "\n";
+      std::cerr << "command interpreter error: " << ams.err_msg(e) << "\n";
       ams.clear_err();
     }
     

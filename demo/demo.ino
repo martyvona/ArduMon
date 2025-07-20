@@ -6,24 +6,24 @@
 #define BAUD 115200
 
 #ifndef MAX_CMDS
-#define MAX_CMDS 64
+#define MAX_CMDS 32
 #endif
 
 #ifndef RECV_BUF_SZ
-#define RECV_BUF_SZ 256
+#define RECV_BUF_SZ 128
 #endif
 
 #ifndef SEND_BUF_SZ
-#define SEND_BUF_SZ 256
+#define SEND_BUF_SZ 128
 #endif
 
 typedef ArduMonSlave<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ> AMS;
 
 #ifdef ARDUINO
-void println(const char *str) { Serial.println(str); }
+void println(const __FlashStringHelper *str) { Serial.println(str); }
 AMS ams;
 #else
-#define PSTR(s) (s)
+#define F(p) (p)
 #include <cstdio>
 void println(const char *str) { printf("%s\n", str); }
 AMS ams(&STREAM);
@@ -66,45 +66,46 @@ bool echo_double(AMS *ams) { return echo<double>(ams); }
 
 void show_error() {
   AMS::Error e = ams.get_err();
-  if (e != AMS::Error::NONE) {
-    println(AMS::err_msg_P(e));
-    ams.clear_err();
-  }
+  if (e != AMS::Error::NONE) { println(AMS::err_msg(e)); ams.clear_err(); }
 }
 
 void add_cmds() {
 
-  ams.set_txt_prompt("demo>");
+  ams.set_txt_prompt(F("demo>"));
   ams.set_txt_echo(true);
 
-  if (!ams.add_cmd_P(noop, PSTR("noop"), "no operation")) show_error();
-  if (!ams.add_cmd_P(help, PSTR("help"), "show commands")) show_error();
-  if (!ams.add_cmd_P(help, PSTR("?"), "show commands")) show_error();
-  if (!ams.add_cmd_P(echo_char, PSTR("ec"), "echo char")) show_error();
-  if (!ams.add_cmd_P(echo_str, PSTR("es"), "echo str")) show_error();
-  if (!ams.add_cmd_P(echo_bool, PSTR("eb"), "echo bool")) show_error();
-  if (!ams.add_cmd_P(echo_u8, PSTR("eu8"), "echo uint8")) show_error();
-  if (!ams.add_cmd_P(echo_u8, PSTR("eu8h"), "echo uint8 hex")) show_error();
-  if (!ams.add_cmd_P(echo_s8, PSTR("e8"), "echo int8")) show_error();
-  if (!ams.add_cmd_P(echo_s8, PSTR("e8h"), "echo int8 hex")) show_error();
-  if (!ams.add_cmd_P(echo_u16, PSTR("eu16"), "echo uint16")) show_error();
-  if (!ams.add_cmd_P(echo_u16, PSTR("eu16h"), "echo uint16 hex")) show_error();
-  if (!ams.add_cmd_P(echo_s16, PSTR("e16"), "echo int16")) show_error();
-  if (!ams.add_cmd_P(echo_s16, PSTR("e16h"), "echo int16 hex")) show_error();
-  if (!ams.add_cmd_P(echo_u32, PSTR("eu32"), "echo uint32")) show_error();
-  if (!ams.add_cmd_P(echo_u32, PSTR("eu32h"), "echo uint32 hex")) show_error();
-  if (!ams.add_cmd_P(echo_s32, PSTR("e32"), "echo int32")) show_error();
-  if (!ams.add_cmd_P(echo_s32, PSTR("e32h"), "echo int32hex")) show_error();
+#define ADD_CMD(func, name, desc) if (!ams.add_cmd(func, F(name), F(desc))) show_error();
+
+  ADD_CMD(noop, "noop", "no operation");
+  ADD_CMD(help, "help", "show commands");
+  ADD_CMD(help, "?", "show commands");
+  ADD_CMD(echo_char, "ec", "echo char");
+  ADD_CMD(echo_str, "es", "echo str");
+  ADD_CMD(echo_bool, "eb", "echo bool");
+  ADD_CMD(echo_s8, "es8", "echo int8");
+  ADD_CMD(echo_s8, "es8h", "echo int8 hex");
+  ADD_CMD(echo_u8, "eu8", "echo uint8");
+  ADD_CMD(echo_u8, "eu8h", "echo uint8 hex");
+  ADD_CMD(echo_s16, "es16", "echo int16");
+  ADD_CMD(echo_s16, "es16h", "echo int16 hex");
+  ADD_CMD(echo_u16, "eu16", "echo uint16");
+  ADD_CMD(echo_u16, "eu16h", "echo uint16 hex");
+  ADD_CMD(echo_s32, "es32", "echo int32");
+  ADD_CMD(echo_s32, "es32h", "echo int32 hex");
+  ADD_CMD(echo_u32, "eu32", "echo uint32");
+  ADD_CMD(echo_u32, "eu32h", "echo uint32 hex");
 #ifdef WITH_INT64
-  if (!ams.add_cmd_P(echo_u64, PSTR("eu64"), "echo uint64")) show_error();
-  if (!ams.add_cmd_P(echo_u64, PSTR("eu64h"), "echo uint64 hex")) show_error();
-  if (!ams.add_cmd_P(echo_s64, PSTR("e64"), "echo int64")) show_error();
-  if (!ams.add_cmd_P(echo_s64, PSTR("e64h"), "echo int64 hex")) show_error();
+  ADD_CMD(echo_s64, "es64", "echo int64");
+  ADD_CMD(echo_s64, "es64h", "echo int64 hex");
+  ADD_CMD(echo_u64, "eu64", "echo uint64");
+  ADD_CMD(echo_u64, "eu64h", "echo uint64 hex");
 #endif
-  if (!ams.add_cmd_P(echo_float, PSTR("ef"), "echo float")) show_error();
+  ADD_CMD(echo_float, "ef", "echo float");
 #ifdef WITH_DOUBLE
-  if (!ams.add_cmd_P(echo_double, PSTR("ed"), "echo double")) show_error();
+  ADD_CMD(echo_float, "ed", "echo double");
 #endif
+
+#undef ADD_CMD
 }
 
 void setup() {
@@ -114,5 +115,7 @@ void setup() {
   add_cmds();
 }
 
-void loop() { ams.update(); }
+void loop() {
+  ams.update();
+}
 

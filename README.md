@@ -174,7 +174,7 @@ cd demo
 
 Attach the CYD by USB. Note that some CYD variants have a [USB-C port which does not work properly](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#the-usb-c-port-doesnt-work) with USB C-C cables; try a USB A-C cable instead.
 
-You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connected to port P1 on the CYD, push the reset button on the CYD, then the boot button, then release reset, then release boot.  However, there are several caveats with this method.  The [ESP32-2432S028 CYD with both USB micro and USB C ports](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#my-cyd-has-two-usb-ports) appears to have a design flaw where the on-board CH340C USB to serial chip holds the RX line high even when USB is not connected (this also probably applies to the [original CYD with only USB micro](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#what-is-a-cheap-yellow-display-cyd)).  This can be corrected with a board modification to create a [diode-OR](https://en.wikipedia.org/wiki/Diode-or_circuit) as shown in [this photo](./photos/CYD-diode-or.jpg), though this requires some tricky soldering and would be challenging without a microscope: remove the 100 Ohm resistor connected to the RX pin on P1 and replace it with any standard signal diode, e.g. 1N4148, with the cathode attached to the RX pin on P1; cut the trace leading to pin 2 on the CH340C right next to the IC, then bridge that cut with another of the same type of diode, with its cathode attached to the CH340C.  This diode arrangement also solves a secondary issue, which is that the P1 RX pin is not 5V tolerant, since the ESP32 input pin is itself not 5V tolerant.  The diode-OR [resolves this](https://forum.arduino.cc/t/5v-to-3-3v-logic-signal-diodes-to-drop-voltage/372343/9) by relying on the internal pullup on the ESP32 RX pin to bring it high.  Some other CYD variants have a 0 Ohm resistor installed instead of the 100 Ohm one on the P1 RX pin, and probably some other changes as well.  Those *may* work unmodified, but they likely still have the issue with applying 5V to RX (which may work in practice, but is out of spec).  So, either use a [USB-to-serial](./photos/CYD-3_3V-adapter.jpg) adapter [capable of 3.3V](https://www.amazon.com/dp/B087RJ7X32), or put a [diode in-line](./photos/CYD-inline-diode.jpg) with its anode attached to the P1 RX pin.
+You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connected to port P1 on the CYD, push the reset button on the board, then the boot button, then release reset, then release boot.  However, there are several caveats with this method.  The [ESP32-2432S028 CYD with both USB micro and USB C ports](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#my-cyd-has-two-usb-ports) appears to have a design flaw where the on-board CH340C USB to serial chip holds the RX line high even when USB is not connected (this also probably applies to the [original CYD with only USB micro](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#what-is-a-cheap-yellow-display-cyd)).  This can be corrected with a board modification to create a [diode-OR](https://en.wikipedia.org/wiki/Diode-or_circuit) as shown in [this photo](./photos/CYD-diode-or.jpg), though this requires some tricky soldering and would be challenging without a microscope: remove the 100 Ohm resistor connected to the RX pin on P1 and replace it with any standard signal diode, e.g. 1N4148, with the cathode attached to the RX pin on P1; cut the trace leading to pin 2 on the CH340C right next to the IC, then bridge that cut with another of the same type of diode, with its cathode attached to the CH340C.  This diode arrangement also solves a secondary issue, which is that the P1 RX pin is not 5V tolerant, since the ESP32 input pin is itself not 5V tolerant.  The diode-OR [resolves this](https://forum.arduino.cc/t/5v-to-3-3v-logic-signal-diodes-to-drop-voltage/372343/9) by relying on the internal pullup on the ESP32 RX pin to bring it high.  Some other CYD variants have a 0 Ohm resistor installed instead of the 100 Ohm one on the P1 RX pin, and probably some other changes as well.  Those *may* work unmodified, but they likely still have the issue with applying 5V to RX (which may work in practice, but is out of spec).  So, either use a [USB-to-serial](./photos/CYD-3_3V-adapter.jpg) adapter [capable of 3.3V](https://www.amazon.com/dp/B087RJ7X32), or put a [diode in-line](./photos/CYD-inline-diode.jpg) with its anode attached to the P1 RX pin.
 
 ```
 cd demo
@@ -184,7 +184,7 @@ cd demo
 ### Upload the Demo for STM32
 
 arduino-cli supports uploading to STM32 boards in several different ways.  If you are using a board like the STM32F411CEU6 [BlackPill](https://www.adafruit.com/product/4877) ([DFRobot](https://www.dfrobot.com/product-2338.html
-), [Amazon](https://www.amazon.com/dp/B09V7GCMRX)) you can use USB device firmware upgrade (DFU) mode.  You will first need to install the [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) software.  Then:
+), [Amazon](https://www.amazon.com/dp/B09V7GCMRX)) you can use USB device firmware upgrade (DFU) mode.  You will first need to install the [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) software.  Push the reset button on the board, then the boot button, then release reset, then release boot.  Then:
 
 ```
 cd demo
@@ -205,7 +205,7 @@ cd demo
 upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
 ```
 
-SWD mode can also be used on boards like the BlackPill, but does require a separate hardware dongle like like [ST-LINK V2](https://www.amazon.com/dp/B07SQV6VLZ) or [ST-LINK V3](https://www.dalbert.net/stlink-v3-minie).  Be aware that you may want to check if the firmware on the dongle needs to be upgraded first with [this tool](https://www.st.com/en/development-tools/stsw-link007.html).
+SWD mode can also be used on boards like the BlackPill, but does require a separate hardware dongle like like [ST-LINK V2](https://www.amazon.com/dp/B07SQV6VLZ) or [ST-LINK V3](https://www.dalbert.net/stlink-v3-minie).  You may want to check if the firmware on the dongle needs to be upgraded first with [this tool](https://www.st.com/en/development-tools/stsw-link007.html).
 
 ## Connecting
 
@@ -226,6 +226,8 @@ To install [minicom](https://en.wikipedia.org/wiki/Minicom) on OS X:
 brew install minicom
 ```
 
+To connect with minicom:
+
 ```
 minicom -D /dev/cu.usb* -b 115200 # substitute your port and baud rate if necessary
 ```
@@ -233,6 +235,16 @@ minicom -D /dev/cu.usb* -b 115200 # substitute your port and baud rate if necess
 To exit minicom hit option-Z then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
 ### Connecting with Screen
+
+To connect with screen:
+
+To install [screen](https://www.gnu.org/software/screen/manual/screen.html) on OS X:
+
+```
+brew install screen
+```
+
+To connect with screen:
 
 ```
 screen /dev/cu.usb* 115200 # substitute your port and baud rate if necessary
@@ -247,6 +259,8 @@ To install [c-kermit](https://www.kermitproject.org/ck90.html) on OS X:
 ```
 brew install c-kermit
 ```
+
+To connect with c-kermit:
 
 ```
 cd demo

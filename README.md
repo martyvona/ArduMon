@@ -130,6 +130,7 @@ curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.
 One time config to install the Arduino cores:
 ```
 arduino-cli config init --additional-urls https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
+arduino-cli config set network.connection_timeout 600s
 arduino-cli core update-index
 arduino-cli core list --all
 arduino-cli core install arduino:avr

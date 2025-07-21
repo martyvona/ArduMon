@@ -120,7 +120,7 @@ brew install arduino-cli
 softwareupdate --install-rosetta
 ```
 
-Linux (including Raspbian and WSL) - install into `~/bin`:
+Linux (including Raspbian and WSL) and Windows (using [git bash](https://about.gitlab.com/blog/git-command-line-on-windows-with-git-bash)) - install into `~/bin`:
 ```
 cd ~
 curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
@@ -128,6 +128,7 @@ curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.
 ```
 
 One time config to install the Arduino cores:
+
 ```
 arduino-cli config init --additional-urls https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
 arduino-cli config set network.connection_timeout 600s
@@ -140,7 +141,10 @@ arduino-cli core install STMicroelectronics:stm32 # for STM32 boards including B
 arduino-cli board listall
 ```
 
+Unfortunately `STMicroelectronics:stm32` is [not currently supported](https://github.com/stm32duino/Arduino_Core_STM32/issues/708) on Linux/ARM (e.g. Raspberry Pi).
+
 Compile the demo for AVR, ESP32, and STM32:
+
 ```
 cd demo
 ./build-avr.sh uno # or replace uno with nano or any board in arduino-cli board listall | grep arduino:avr
@@ -227,6 +231,12 @@ To install [minicom](https://en.wikipedia.org/wiki/Minicom) on OS X:
 brew install minicom
 ```
 
+To install minicom on Linux including WSL:
+
+```
+sudo apt install minicom # or use the package manger for your distribution
+```
+
 To connect with minicom:
 
 ```
@@ -245,6 +255,13 @@ To install [screen](https://www.gnu.org/software/screen/manual/screen.html) on O
 brew install screen
 ```
 
+To install screen on Linux including WSL:
+
+```
+sudo apt install screen # or use the package manger for your distribution
+```
+
+
 To connect with screen:
 
 ```
@@ -260,6 +277,8 @@ To install [c-kermit](https://www.kermitproject.org/ck90.html) on OS X:
 ```
 brew install c-kermit
 ```
+
+Currently c-kermit packages do not appear to be well maintained for Debian-based Linux distributions including WSL.
 
 To connect with c-kermit:
 

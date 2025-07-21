@@ -757,6 +757,7 @@ private:
       case BoolStyle::ZERO_ONE: return write_char(v ? '1' : '0');
       case BoolStyle::YES_NO: return write_case_str(v ? F("YES") : F("NO"), !upper_case);
       case BoolStyle::YN: return write_case_str(v ? F("Y") : F("N"), !upper_case);
+			default: return fail(Error::BAD_ARG);
     }
   }
 

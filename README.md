@@ -10,7 +10,7 @@ Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
 
 [MIT License](./LICENSE.txt)
 
-Once upon a time, it was not uncommon during microcontroller firmware development to implement a *firmware monitor* as a a command line interface (CLI) exposed by the firmware over a serial port.  (Terminology: the word *monitor* has been used both for microcontroller firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting) to it.)  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
+Once upon a time, it was not uncommon during microcontroller firmware development to implement a *firmware monitor* as a a command line interface (CLI) exposed by the firmware over a serial port.  (Terminology: the word *monitor* has been used both for microcontroller firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting-to-ardumon) to it.)  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
 
 *ArduMon* is yet another one of these, but with a few features that I didn't see in most of the existing ones:
 
@@ -112,7 +112,45 @@ In binary mode a command handler is called when the full length of a packet with
 
 Multibyte quantities are read and written in little endian byte order in binary mode, which matches the endianness of the architectures this library is intended to target.  (Compilation will intentionally fail on a big endian target.)
 
-## Building the Demo
+## Running the Demo Without an Arduino
+
+It's possible to run the ArduMon demo entirely on your host computer, with no Arduino involved.  This can be useful for development and testing.
+
+Install `g++` on Linux including WSL:
+```
+sudo apt install g++ # or use the package manger for your distribution
+```
+
+Install `g++` on OS X:
+```
+xcode-select --install
+```
+
+Compile demo for native host (OS X, Linux, WSL):
+```
+cd demo/native
+./build-native.sh
+```
+
+Run the demo on the native host:
+```
+cd demo/native
+./demo_native foo
+```
+
+A UNIX socket called "foo" (use any name you want) will be created as as a file in the curent directory, and will be deleted when the demo program terminates.
+
+This should work on Linux and OS X.  It should also work on Windows under WSL, but [UNIX sockets are currently only supported in WSL 1](https://stackoverflow.com/a/73067921), not WSL 2.  You can [switch](https://learn.microsoft.com/en-us/windows/wsl/install#upgrade-version-from-wsl-1-to-wsl-2) an existing WSL installation to WSL 1 with the command `wsl --set-version DISTRO_NAME 1` where `DISTRO_NAME` is one of the installed WSL Linux distributions shown in `wsl --list`.  You can also switch back to WSL 2 later with `wsl --set-version DISTRO_NAME 2`.
+
+Once `demo_native` is running, open another terminal and use [minicom](#connecting-with-minicom) to attach to it with a command like
+
+```
+minicom -D unix#PATH_TO_UNIX_SOCKET_FILE
+```
+
+where `PATH_TO_UNIX_SOCKET_FILE` is the full path to the Unix socket file that was created by `demo_native`.  To end the demo, enter the command `quit` in minicom, which will cause `demo_native` to terminate and the UNIX socket file to be deleted.  Then exit minicom by hitting ctrl-A (option-Z on OS X), then Q, then enter.
+
+## Building the Demo for Arduino
 
 OS X:
 ```
@@ -120,7 +158,7 @@ brew install arduino-cli
 softwareupdate --install-rosetta
 ```
 
-Linux (including Raspbian and WSL) and Windows (using [git bash](https://about.gitlab.com/blog/git-command-line-on-windows-with-git-bash)) - install into `~/bin`:
+Linux and Windows (using [git bash](https://about.gitlab.com/blog/git-command-line-on-windows-with-git-bash) or WSL) - install into `~/bin`:
 ```
 cd ~
 curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
@@ -154,13 +192,7 @@ cd demo
 ./build-stm32.sh STMicroelectronics:stm32:Nucleo_64 NUCLEO_F411RE # or any part number in arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
 ```
 
-Compile demo for native host (OS X, Linux, WSL):
-```
-cd demo/native
-./build-native.sh
-```
-
-## Uploading the Demo
+## Uploading the Demo to an Arduino Board
 
 Attach your Arduino using a USB cable, then verify you can see it:
 
@@ -216,7 +248,7 @@ upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
 
 SWD mode can also be used on boards like the BlackPill, but does require a separate hardware dongle like like [ST-LINK V2](https://www.amazon.com/dp/B07SQV6VLZ) or [ST-LINK V3](https://www.dalbert.net/stlink-v3-minie).  You may want to check if the firmware on the dongle needs to be upgraded first with [this tool](https://www.st.com/en/development-tools/stsw-link007.html).
 
-## Connecting
+## Connecting to ArduMon
 
 This section explains how to interact with an Arduino running ArduMon using a terminal emulator.  This assumes you have the Arduino connected to your computer, typically with a USB cable or USB-to-serial adapter.  If you are using a CYD, see the [above caveats](#upload-the-demo-for-esp32-cyd-cheap-yellow-display) about the functionality of the USB-C and P1 (TTL serial) ports.
 
@@ -249,7 +281,7 @@ minicom -D /dev/cu.usb* -b 115200
 
 Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
-To exit minicom hit ctrl-A on Linux/WSL, option-Z on OS X, then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
+To exit minicom hit ctrl-A (option-Z on OS X), then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
 If nothing happens when you type, ensure hardware flow control is OFF: ctrl-A (option-Z on OS X), then O, then serial port setup, then F to toggle hardware flow control.  You can then "save setup as dfl" to persist this setting.
 
@@ -269,7 +301,6 @@ To install screen on Linux including WSL:
 sudo apt install screen # or use the package manger for your distribution
 ```
 
-
 To connect with screen:
 
 ```
@@ -288,7 +319,7 @@ To install [c-kermit](https://www.kermitproject.org/ck90.html) on OS X:
 brew install c-kermit
 ```
 
-Currently c-kermit packages do not appear to be well maintained for Debian-based Linux distributions including WSL.
+Currently c-kermit packages do not appear to be well maintained for Linux distributions including in WSL.
 
 To connect with c-kermit:
 

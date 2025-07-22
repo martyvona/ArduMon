@@ -165,15 +165,17 @@ cd demo/native
 Attach your Arduino using a USB cable, then verify you can see it:
 
 ```
-arduino-cli board list # look for /dev/cu.usb* or /dev/ttyUSB*
+arduino-cli board list
 ```
 
 ### Upload the Demo for AVR
 
 ```
 cd demo
-./upload-avr.sh arduino:avr:uno /dev/cu.usb* # replace cu.usb* with ttyUSB* on Linux/WSL
+./upload-avr.sh arduino:avr:uno /dev/cu.usb*
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on windows, where n is the serial port number shown in `arduino-cli board list`.
 
 ### Upload the Demo for ESP32 CYD (Cheap Yellow Display)
 
@@ -183,8 +185,10 @@ You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connec
 
 ```
 cd demo
-./upload-esp32.sh esp32:esp32:esp32 /dev/cu.usb* # replace cu.usb* with ttyUSB* on Linux/WSL
+./upload-esp32.sh esp32:esp32:esp32 /dev/cu.usb*
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 ### Upload the Demo for STM32
 
@@ -218,7 +222,7 @@ This section explains how to interact with an Arduino running ArduMon using a te
 
 First determine the serial port device on your computer corresponding to your Arduino:
 ```
-arduino-cli board list # look for /dev/cu.usb* on OS X or /dev/ttyUSB* on Linux/WSL
+arduino-cli board list
 ```
 
 The example commands below expect there to be exactly one Arduino connected; if there is more than one then you will need to specify the one to use exactly instead of using a wildcard as in the example commands below.
@@ -240,8 +244,10 @@ sudo apt install minicom # or use the package manger for your distribution
 To connect with minicom:
 
 ```
-minicom -D /dev/cu.usb* -b 115200 # substitute your port and baud rate if necessary
+minicom -D /dev/cu.usb* -b 115200
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit minicom hit ctrl-A on Linux/WSL, option-Z on OS X, then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
@@ -267,8 +273,10 @@ sudo apt install screen # or use the package manger for your distribution
 To connect with screen:
 
 ```
-screen /dev/cu.usb* 115200 # substitute your port and baud rate if necessary
+screen /dev/cu.usb* 115200
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit screen hit ctrl-A then \ (backslash) then Y.
 
@@ -286,17 +294,24 @@ To connect with c-kermit:
 
 ```
 cd demo
-./kermit.scr /dev/cu.usb* 115200 # substitute your port and baud rate if necessary
+./kermit.scr /dev/cu.usb* 115200
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit kermit hit ctrl-\ then Q.
 
 ### Connecting with `arduino-cli monitor`
 
 ```
-arduino-cli monitor --port /dev/cu.usb* --config 115200 --quiet --raw # substitute your port and baud rate if necessary
+arduino-cli monitor --port /dev/cu.usb* --config 115200 --quiet --raw
 ```
+
+Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit the arduino-cli monitor hit ctrl-C.  You may need to then enter the `reset` command to reinitialize your terminal.
 
-These options should also be appliccable to using the serial monitor in the Arduino IDE.
+### Connecting with the Arduino IDE
+
+Select your bord in the "Select Board" dropdown.  Then select Tools -> Serial Monitor.  Make sure the baud rate is set to 115200.
+

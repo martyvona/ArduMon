@@ -895,7 +895,7 @@ private:
 #ifdef __AVR__
       dtostre(v, buf, prec, DTOSTR_UPPERCASE); //dtostre() is only on AVR, not ESP32
 #else
-      char fmt[6];
+      char fmt[7];
       snprintf(fmt, sizeof(fmt), "%%.%dE", prec);
       snprintf(buf, buf_sz, fmt, v);
 #endif
@@ -915,7 +915,7 @@ private:
 #ifdef ARDUINO
       dtostrf(v, wid, prec, buf);
 #else
-      char fmt[9];
+      char fmt[10];
       snprintf(fmt, sizeof(fmt), "%%%d.%df", wid, prec);
       snprintf(buf, buf_sz, fmt, v);
 #endif

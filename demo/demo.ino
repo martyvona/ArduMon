@@ -1,9 +1,24 @@
-#include <ArduMonSlave.h>
+#include <ArduMon.h>
 
-#define WITH_INT64
-#define WITH_DOUBLE
+#ifndef WITH_INT64
+#define WITH_INT64 true
+#endif
 
+#ifndef WITH_DOUBLE
+#define WITH_DOUBLE true
+#endif
+
+#ifndef WITH_BINARY
+#define WITH_BINARY true
+#endif
+
+#ifndef WITH_TEXT
+#define WITH_TEXT true
+#endif
+
+#ifndef BAUD
 #define BAUD 115200
+#endif
 
 #ifndef MAX_CMDS
 #define MAX_CMDS 32
@@ -17,64 +32,64 @@
 #define SEND_BUF_SZ 128
 #endif
 
-typedef ArduMonSlave<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ> AMS;
+typedef ArduMon<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ, WITH_INT64, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
 
 #ifdef ARDUINO
 void println(const __FlashStringHelper *str) { Serial.println(str); }
-AMS ams;
+AM am;
 #else
 #define F(p) (p)
 #include <cstdio>
 void println(const char *str) { printf("%s\n", str); }
-AMS ams(&STREAM);
+AM am(&STREAM);
 #endif
 
-bool noop(AMS *ams) { return ams->end_cmd(); }
+bool noop(AM *am) { return am->end_cmd(); }
 
-bool help(AMS *ams) { return ams->send_cmds() && ams->end_cmd(); }
+bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
 
-template <typename T> bool echo(AMS *ams) {
+template <typename T> bool echo(AM *am) {
   //the first recv() skips over the command token itself
-  T v; return ams->recv() && ams->recv(&v) && ams->send(v) && ams->send_CRLF() && ams->end_cmd();
+  T v; return am->recv() && am->recv(&v) && am->send(v) && am->send_CRLF() && am->end_cmd();
 }
 
-template <typename T> bool echo_int(AMS *ams) {
+template <typename T> bool echo_int(AM *am) {
   const char *cmd;
-  if (!ams->recv(&cmd)) return false;
+  if (!am->recv(&cmd)) return false;
   const char *end= cmd; while (*end) ++end;
   const bool hex = *(end-1) == 'h';
-  T v; return ams->recv(&v, hex) && ams->send(v, hex) && ams->send_CRLF() && ams->end_cmd();
+  T v; return am->recv(&v, hex) && am->send(v, hex) && am->send_CRLF() && am->end_cmd();
 }
 
-bool echo_char(AMS *ams) { return echo<char>(ams); }
-bool echo_str(AMS *ams) { return echo<const char*>(ams); }
-bool echo_bool(AMS *ams) { return echo<bool>(ams); }
-bool echo_u8(AMS *ams) { return echo_int<uint8_t>(ams); }
-bool echo_s8(AMS *ams) { return echo_int<int8_t>(ams); }
-bool echo_u16(AMS *ams) { return echo_int<uint16_t>(ams); }
-bool echo_s16(AMS *ams) { return echo_int<int16_t>(ams); }
-bool echo_u32(AMS *ams) { return echo_int<uint32_t>(ams); }
-bool echo_s32(AMS *ams) { return echo_int<int32_t>(ams); }
+bool echo_char(AM *am) { return echo<char>(am); }
+bool echo_str(AM *am) { return echo<const char*>(am); }
+bool echo_bool(AM *am) { return echo<bool>(am); }
+bool echo_u8(AM *am) { return echo_int<uint8_t>(am); }
+bool echo_s8(AM *am) { return echo_int<int8_t>(am); }
+bool echo_u16(AM *am) { return echo_int<uint16_t>(am); }
+bool echo_s16(AM *am) { return echo_int<int16_t>(am); }
+bool echo_u32(AM *am) { return echo_int<uint32_t>(am); }
+bool echo_s32(AM *am) { return echo_int<int32_t>(am); }
 #ifdef WITH_INT64
-bool echo_u64(AMS *ams) { return echo_int<uint64_t>(ams); }
-bool echo_s64(AMS *ams) { return echo_int<int64_t>(ams); }
+bool echo_u64(AM *am) { return echo_int<uint64_t>(am); }
+bool echo_s64(AM *am) { return echo_int<int64_t>(am); }
 #endif
-bool echo_float(AMS *ams) { return echo<float>(ams); }
+bool echo_float(AM *am) { return echo<float>(am); }
 #ifdef WITH_DOUBLE
-bool echo_double(AMS *ams) { return echo<double>(ams); }
+bool echo_double(AM *am) { return echo<double>(am); }
 #endif
 
 void show_error() {
-  AMS::Error e = ams.get_err();
-  if (e != AMS::Error::NONE) { println(AMS::err_msg(e)); ams.clear_err(); }
+  AM::Error e = am.get_err();
+  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am.clear_err(); }
 }
 
 void add_cmds() {
 
-  ams.set_txt_prompt(F("demo>"));
-  ams.set_txt_echo(true);
+  am.set_txt_prompt(F("demo>"));
+  am.set_txt_echo(true);
 
-#define ADD_CMD(func, name, desc) if (!ams.add_cmd(func, F(name), F(desc))) show_error();
+#define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error();
 
   ADD_CMD(noop, "noop", "no operation");
   ADD_CMD(help, "help", "show commands");
@@ -116,6 +131,6 @@ void setup() {
 }
 
 void loop() {
-  ams.update();
+  am.update();
 }
 

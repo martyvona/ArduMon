@@ -1,5 +1,5 @@
-#ifndef ARDUMON_CMD_SLAVE_H
-#define ARDUMON_CMD_SLAVE_H
+#ifndef ARDUMON_H
+#define ARDUMON_H
 
 /**
  * ArduMon: Yet another Arduino serial command library.
@@ -22,14 +22,36 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <ctype.h>
 #include <errno.h>
+
+#ifndef ARDUINO
+#include <time.h>
+#endif
 
 //ESP32, STM32, and native do have dtostre(), use snprintf() instead
 #if !defined(ARDUINO) || !defined(__AVR__)
 #include <stdio.h>
 #endif
 
-#include <ArduMonBase.h>
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+#error "only little endian architectures are supported"
+#endif
+
+#ifndef ARDUINO
+class ArduMonStream {
+public:
+  virtual ~ArduMonStream() {}
+  virtual int16_t available() = 0;
+  virtual int16_t read() = 0; //-1 if no data available
+  virtual int16_t availableForWrite() = 0;
+  virtual uint16_t write(uint8_t byte) = 0; //returns 1
+};
+#endif
 
 //max_num_cmds is the maximum number of commands that can be registered
 //
@@ -44,9 +66,25 @@
 //the send buffer is not used in text mode, and send_buf_sz can be set to 0 if binary mode will not be used
 //in binary mode the send buffer must be large enough to hold the largest outgoing packet
 //send_buf_sz can be set to 0 for an application that only receives
-template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256>
-class ArduMonSlave : public ArduMonBase {
+//
+//with_int64 = false saves ~200 bytes on AVR if you don't need (u)int64 support
+//with_double = false only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
+//
+//with_binary = false saves ~700 bytes on AVR
+//with_text = false saves ~10k bytes on AVR
+template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256,
+          bool with_int64 = false, bool with_double = false, bool with_binary = true, bool with_text = true>
+class ArduMon {
 public:
+
+  typedef unsigned long millis_t;
+
+#ifndef ARDUINO
+  typedef char __FlashStringHelper;
+  typedef ArduMonStream Stream;
+#endif
+
+  typedef __FlashStringHelper FSH;
 
   enum class Error : uint8_t {
     NONE,
@@ -58,7 +96,9 @@ public:
     BAD_CMD,        //received command unknown
     BAD_ARG,        //received data failed to parse as expected type
     BAD_HANDLER,    //handler failed
-    BAD_PACKET      //invalid received checksum or packet length < 3 in binary mode
+    BAD_PACKET,     //invalid received checksum or packet length < 3 in binary mode
+    PARSE,          //text command parse error (e.g. unterminated string)
+    UNSUPPORTED     //unsupported operation (e.g. recv(int64_t) but !with_int64)
   };
 
   static const FSH *err_msg(const Error e) {
@@ -73,17 +113,19 @@ public:
       case Error::BAD_ARG: return F("bad argument");
       case Error::BAD_HANDLER: return F("error handling command");
       case Error::BAD_PACKET: return F("bad packet");
+      case Error::PARSE: return F("parse error");
+      case Error::UNSUPPORTED: return F("unsupported operation");
       default: return F("(unknown error)");
     }
   }
 
-  ArduMonSlave(Stream *s, const bool binary = false) : stream(s) {
+  ArduMon(Stream *s, const bool binary = !with_text) : stream(s) {
     memset(cmds, 0, sizeof(cmds));
     set_binary_mode_impl(binary, true, false);
   }
 
 #ifdef ARDUINO
-  ArduMonSlave(const bool binary = false) : ArduMonSlave(&Serial, binary) { }
+  ArduMon(const bool binary = !with_text) : ArduMon(&Serial, binary) { }
 #endif
 
   Error get_err() { return err; }
@@ -91,11 +133,11 @@ public:
   //once an error state is set it is sticky; any further errors will not overwrite it until clear_err() is called
   void clear_err() { err = Error::NONE; }
 
-  //handler_t is a pointer to a function taking pointer to ArduMonSlave object and returning success (true)/fail (false)
+  //handler_t is a pointer to a function taking pointer to ArduMon object and returning success (true)/fail (false)
   //if the return is false then the handler failed, and should not have called end_cmd()
   //if the return is true then the handler succeded, but may or may not have called end_cmd()
   //if not, the command is considered still being handled until end_cmd() is called
-  typedef bool (*handler_t)(ArduMonSlave*);
+  typedef bool (*handler_t)(ArduMon*);
 
   //get the number of registered commands
   uint8_t get_num_cmds() { return n_cmds; }
@@ -155,6 +197,7 @@ public:
   //does nothing if already in the requested mode
   //otherwise the command interpreter and send and receive buffers are reset
   //if the new mode is text and there is a prompt it is sent
+  //Error::UNSUPPORTED if binary but !with_binary or !binary but !with_text
   void set_binary_mode(const bool binary) { set_binary_mode_impl(binary); }
 
   //the command interpreter and send and receive buffers are reset
@@ -245,6 +288,7 @@ public:
   //binary mode: receive an integer of the indicated size
   //text mode: receive a decimal or hexadecimal integer
   //if hex == true then always interpret as hex in text mode, else interpret as hex iff prefixed with 0x or 0X
+  //Error::UNSUPPORTED if recv([u]int64_t) but !with_int64
   bool recv( uint8_t *v, const bool hex = false) { return parse_int(next_tok(1), BP(v), false, 1, hex); }
   bool recv(  int8_t *v, const bool hex = false) { return parse_int(next_tok(1), BP(v), true,  1, hex); }
   bool recv(uint16_t *v, const bool hex = false) { return parse_int(next_tok(2), BP(v), false, 2, hex); }
@@ -257,12 +301,13 @@ public:
   //binary mode: receive float or double
   //text mode: receive a decimal or scientific float or double
   //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
+  //Error::UNSUPPORTED if sizeof(float) != sizeof(double) and recv(double) but !with_double
   bool recv(float *v) { return parse_float(next_tok(4), v); }
   bool recv(double *v) { return parse_float(next_tok(sizeof(double)), v); }
 
   //sends carriage return and line feed in text mode; noop in binary mode
   bool send_CRLF() {
-    if (binary_mode) return true;
+    if (binary_mode || !with_text) return true;
     space_pending = false;
     return send_raw('\r') && send_raw('\n');
   }
@@ -375,7 +420,7 @@ public:
   //binary mode: noop
   //text mode: move VT100 cursor n places in dir
   bool vt100_move_rel(const uint16_t n, const char dir) {
-    if (binary_mode) return true;
+    if (binary_mode || !with_text) return true;
     return write_char('\x1B') && write_char('[') && (n < 10 ? send_raw(static_cast<char>('0' + n)) : send_raw(n)) &&
       write_char(dir);
   }
@@ -383,7 +428,7 @@ public:
   //binary mode: noop
   //text mode: move VT100 cursor to (row, col)
   bool vt100_move_abs(const uint16_t row, const uint16_t col) {
-    if (binary_mode) return true;
+    if (binary_mode || !with_text) return true;
     return write_char('\x1B') && write_char('[') && send_raw(row) && write_char(';') &&
       send_raw(col) && write_char('H');
   }
@@ -433,7 +478,7 @@ private:
     const bool is(const char *n) { return (progmem ? strcmp_P(n, name) : strcmp(n, name)) == 0; }
 #ifdef ARDUINO
     const bool is(const FSH *n) {
-      return (progmem ? ArduMonBase::strcmp_PP(name, CCS(n)) : strcmp_P(name, CCS(n))) == 0;
+      return (progmem ? ArduMon::strcmp_PP(name, CCS(n)) : strcmp_P(name, CCS(n))) == 0;
     }
 #endif
   };
@@ -463,7 +508,7 @@ private:
   //does nothing if binary_mode, if txt_prompt is null, or if currently handling
   //otherwise sends optional CRLF followed by txt_prompt and a space
   void send_txt_prompt(const bool with_crlf = false) {
-    if (!binary_mode && txt_prompt != 0 && !handling) {
+    if (with_text && !binary_mode && txt_prompt != 0 && !handling) {
       if (with_crlf) { write_char('\r'); write_char('\n'); }
       write_str(txt_prompt, txt_prompt_progmem);
       write_char(' ');
@@ -474,7 +519,7 @@ private:
   //in text mode send a space iff space_pending
   //then reset space_pending = true
   bool send_txt_sep() {
-    if (binary_mode) return true;
+    if (binary_mode || !with_text) return true;
     bool ok = space_pending ? write_char(' ') : true;
     space_pending = true;
     return ok;
@@ -519,7 +564,7 @@ private:
       if (save_cmd) recv_buf[recv_buf_sz/2 + i + 1] = (comment_start || c == '\n' || c == '\r')  ? 0 : c;
 
       if ((in_str || in_chr) && c == '\\') {
-        if (i == len - 1) return fail(Error::BAD_ARG);
+        if (i == len - 1) return fail(Error::PARSE);
         c = unescape(recv_buf[++i]);
       }
       else if (!in_chr && c == '"') { in_str = !in_str; c = 0; } //start/end of string
@@ -530,7 +575,7 @@ private:
       else recv_buf[j] = c;
     }
 
-    if (in_str || in_chr) return fail(Error::BAD_ARG);
+    if (in_str || in_chr) return fail(Error::PARSE);
 
     while (j < recv_buf_sz/2) recv_buf[j++] = 0;
     if (!save_cmd) while (j < recv_buf_sz) recv_buf[j++] = 0;
@@ -563,8 +608,8 @@ private:
       //recv_buf + recv_buf[0] - 1 is the checksum byte which can't itself be received
       if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL;
       recv_ptr += binary_bytes;
-    } else {
-      if (*ret == '\n') FAIL; //start of saved command
+    } else { //!binary_mode || !binary_bytes
+      if (!binary_mode && *ret == '\n') FAIL; //start of saved command
       while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip non-null characters of current token
       while (*recv_ptr == 0) if (++recv_ptr == recv_buf + recv_buf_sz) break; //skip null separators
     }
@@ -576,7 +621,7 @@ private:
   //text mode: receive "true", "false", "t", "f", "0", "1", "yes", "no", "y", "n" or uppercase equivalents
   bool parse_bool(const uint8_t *v, bool *dst) {
     if (!v) return fail(Error::RECV_UNDERFLOW);
-    if (binary_mode) { *dst = *v != 0; return true; }
+    if (binary_mode || !with_text) { *dst = *v != 0; return true; }
     switch (*v++) {
       case '0': if (*v == 0) { *dst = false; return true; } else return fail(Error::BAD_ARG);
       case '1': if (*v == 0) { *dst = true; return true; } else return fail(Error::BAD_ARG);
@@ -604,7 +649,7 @@ private:
 
     if (!v) return fail(Error::RECV_UNDERFLOW);
 
-    if (binary_mode) { copy_bytes(v, dest, num_bytes); return true; }
+    if (binary_mode || !with_text) { copy_bytes(v, dest, num_bytes); return true; }
 
     for (uint8_t i = 0; i < num_bytes; i++) dest[i] = 0;
 
@@ -657,10 +702,12 @@ private:
     }
 
     //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
-    //but just in case, handle the case that sizeof(long) < 4 as well
-    //(the compiler should optimize out the int32 specialization of parse_dec() unless it's really used)
-    if (num_bytes <= 4) return parse_dec<int32_t, uint32_t>(s, dest, sgnd, num_bytes);
-    else return parse_dec<int64_t, uint64_t>(s, dest, sgnd, num_bytes);
+    //but just in case, handle the case that sizeof(long) < 4 as well, though compiler will usually optimize it out
+    if (num_bytes <= 4 && sizeof(long) < 4) return parse_dec<int32_t, uint32_t>(s, dest, sgnd, num_bytes);
+
+    if (with_int64) return parse_dec<int64_t, uint64_t>(s, dest, sgnd, num_bytes);
+
+    return fail(Error::UNSUPPORTED);
   }
 
   //parse a null terminated decimal int from s to num_bytes at dest
@@ -758,7 +805,7 @@ private:
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float or 8 byte double at dest
   template <typename T> bool parse_float(const uint8_t *v, T *dest) {
     if (!v) return fail(Error::RECV_UNDERFLOW);
-    if (binary_mode) { copy_bytes(v, dest, sizeof(T)); return true; }
+    if (binary_mode || !with_text) { copy_bytes(v, dest, sizeof(T)); return true; }
     const char *s = CCS(v);
     char *e;
     const char *expected_e = s; while (*expected_e) ++expected_e;
@@ -772,29 +819,29 @@ private:
   //binary mode: send one byte with value 0 or 1
   //text mode: send boolean value in indicated style
   bool write_bool(const bool v, const BoolStyle style, const bool upper_case) {
+    if (binary_mode || !with_text) write_char(v ? 0 : 1);
     switch (style) {
       case BoolStyle::TRUE_FALSE: return write_case_str(v ? F("TRUE") : F("FALSE"), !upper_case);
       case BoolStyle::TF: return write_case_str(v ? F("T") : F("F"), !upper_case);
       case BoolStyle::ZERO_ONE: return write_char(v ? '1' : '0');
       case BoolStyle::YES_NO: return write_case_str(v ? F("YES") : F("NO"), !upper_case);
       case BoolStyle::YN: return write_case_str(v ? F("Y") : F("N"), !upper_case);
-			default: return fail(Error::BAD_ARG);
+			default: return fail(Error::UNSUPPORTED);
     }
   }
 
-  //binary mode: append null terminated string to send buffer, including terminating null
+  //binary mode: Error::UNSUPPORTED
   //text mode: append string to send buffer, not including terminating null
   //in both cases assume string is supplied in program memory in uppercase, convert to lowercase iff to_lower is true
   bool write_case_str(const FSH *uppercase, const bool to_lower) {
+    if (binary_mode) return fail(Error::UNSUPPORTED);
     uint8_t len = 0; while (CCS(uppercase)[len] != 0) ++len;
-    if (binary_mode && !check_write(len + 1)) return fail(Error::SEND_OVERFLOW);
     uint8_t * const write_start = send_write_ptr;
     for (uint8_t i = 0; i < len + 1; i++) {
-      uint8_t c = pgm_read_byte(CCS(uppercase) + i);
-      if (c && to_lower) c += 32; //'A' + 32 = 'a'
-      if (c || binary_mode) put(c);
+      const uint8_t c = pgm_read_byte(CCS(uppercase) + i);
+      if (c) put(to_lower ? c + 32 : c); //'A' + 32 = 'a'
     }
-    if (!binary_mode && !send_read_ptr) send_read_ptr = write_start; //enable sending
+    if (!send_read_ptr) send_read_ptr = write_start; //enable sending
     return true;
   }
 
@@ -803,7 +850,7 @@ private:
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool write_int(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const bool hex) {
 
-    if (binary_mode) {
+    if (binary_mode || !with_text) {
       if (!check_write(num_bytes)) return fail(Error::SEND_OVERFLOW);
       for (uint8_t i = 0; i < num_bytes; i++) put(v[i]);
       return true;
@@ -843,10 +890,12 @@ private:
     }
 
     //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
-    //but just in case, handle the case that sizeof(long) < 4 as well
-    //(the compiler appears to optimize out the int32 specialization of parse_dec() unless it's really used)
-    if (num_bytes <= 4) return write_dec<uint32_t>(v, sgnd, num_bytes);
-    else return write_dec<uint64_t>(v, sgnd, num_bytes);
+    //but just in case, handle the case that sizeof(long) < 4 as well, though compiler will usually optimize it out
+    if (num_bytes <= 4 && sizeof(long) < 4) return write_dec<uint32_t>(v, sgnd, num_bytes);
+
+    if (with_int64) return write_dec<uint64_t>(v, sgnd, num_bytes);
+
+    return fail(Error::UNSUPPORTED);
   }
 
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
@@ -902,8 +951,9 @@ private:
   //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
   template <typename T> //supports float and double
   bool write_float(const T v, const bool scientific, const int8_t precision, const int8_t width) {
-    constexpr uint8_t nb = sizeof(T); //4 or 8
-    if (binary_mode) {
+    constexpr uint8_t nb = with_double ? sizeof(T) : sizeof(float); //4 or 8
+    if (nb < sizeof(T)) return fail(Error::UNSUPPORTED); //T = double, sizeof(double) > sizeof(float), !with_double
+    if (binary_mode || !with_text) {
       if (!check_write(nb)) return fail(Error::SEND_OVERFLOW);
       for (uint8_t i = 0; i < nb; i++) put(*(BP(&v) + i));
       return true;
@@ -951,7 +1001,7 @@ private:
   //binary mode: append char to send buffer
   //text mode: if cook quote and escape iff necessary, then append char to send buffer
   bool write_char(const char c, const bool cook = false) {
-    if (binary_mode) {
+    if (binary_mode || !with_text) {
       if (!check_write(1)) return fail(Error::SEND_OVERFLOW);
       put(c);
     } else {
@@ -1016,7 +1066,7 @@ private:
   //text mode: return true
   //binary mode: check if there are at least n free bytes available in send_buf
   bool check_write(const uint16_t n) {
-    if (!binary_mode) return true;
+    if (!binary_mode || !with_binary) return true;
     if (!send_write_ptr) return false;
     if (send_write_ptr + n >= send_buf + send_buf_sz) return false; //reserve byte for checksum
     return true;
@@ -1027,13 +1077,13 @@ private:
   //(send_read_ptr is updated in the write(...) functions which call this)
   //assumes check_write() already returned true
   void put(const uint8_t c) {
-    if (binary_mode) *send_write_ptr++ = c;
+    if (binary_mode || !with_text) *send_write_ptr++ = c;
     else stream->write(c);
   }
 
   //see get_send_buf_used()
   uint16_t send_buf_used() {
-    if (!binary_mode) return 0;
+    if (!binary_mode || !with_binary) return 0;
     return send_read_ptr ? send_buf[0] : send_write_ptr - send_buf + 1; //+1 for checksum
   }
 
@@ -1041,7 +1091,7 @@ private:
   uint16_t recv_buf_used() {
     if (!receiving && !handling) return 0;
     if (receiving) return recv_ptr - recv_buf;
-    if (binary_mode) return recv_buf[0];
+    if (binary_mode || !with_text) return recv_buf[0];
     uint8_t *last_non_null = recv_buf + recv_buf_sz - 1;
     while (last_non_null >= recv_buf && *last_non_null == 0) --last_non_null;
     return last_non_null - recv_buf + 1;
@@ -1049,13 +1099,14 @@ private:
 
   //see set_binary_mode(), reset()
   void set_binary_mode_impl(const bool binary, const bool force = false, const bool with_crlf = false) {
+    if ((binary && !with_binary) || (!binary && !with_text)) { fail(Error::UNSUPPORTED); return; }
     if (!force && binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
     err = Error::NONE;
     recv_ptr = recv_buf;
     send_read_ptr = 0;
-    if (binary_mode) send_write_ptr = send_buf + 1; //enable writing send buf, reserve first byte for length
+    if (binary_mode || !with_text) send_write_ptr = send_buf + 1; //enable writing send buf, first byte for length
     else { send_write_ptr = send_buf; send_txt_prompt(with_crlf); }
   }
 
@@ -1079,7 +1130,7 @@ private:
           recv_deadline = millis() + recv_timeout_ms;
         }
 
-        if (binary_mode) {
+        if (binary_mode || !with_text) {
 
           if (recv_ptr == recv_buf) { //received length
             if (*recv_ptr < 3) { receiving = ok = fail(Error::BAD_PACKET); }
@@ -1140,7 +1191,7 @@ private:
     if (!ok) {
       recv_ptr = recv_buf;
       receiving = handling = space_pending = false;
-      if (!binary_mode) {
+      if (!binary_mode || !with_binary) {
         if (err != Error::NONE) write_str(err_msg(err));
         send_txt_prompt(true);
       }
@@ -1152,7 +1203,7 @@ private:
   }
 
   void pump_send_buf(const millis_t wait_ms) {
-    if (!binary_mode) return;
+    if (!binary_mode || !with_binary) return;
     const millis_t deadline = millis() + wait_ms;
     do {
       while (send_read_ptr != 0 && stream->availableForWrite()) {
@@ -1174,12 +1225,12 @@ private:
     if (!ok) fail(Error::BAD_HANDLER, false); //but don't return yet
     handling = space_pending = false;
     recv_ptr = recv_buf;
-    if (!binary_mode) { send_txt_prompt(); return true; }
+    if (!binary_mode || !with_binary) { send_txt_prompt(); return true; }
     else return send_packet_impl();
   }
 
   bool send_packet_impl() {
-    if (!binary_mode) return true;
+    if (!binary_mode || !with_binary) return true;
     uint16_t len = send_write_ptr - send_buf;
     if (len > 254 || len >= send_buf_sz) return fail(Error::SEND_OVERFLOW); //need 1 byte for checksum
     if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length
@@ -1195,7 +1246,7 @@ private:
   }
 
   bool send_cmds_impl() {
-    if (binary_mode) return true;
+    if (binary_mode || !with_text) return true;
     for (uint8_t i = 0; i < n_cmds; i++) {
       if (!write_char(to_hex(cmds[i].code >> 4))) return false;
       if (!write_char(to_hex(cmds[i].code))) return false;
@@ -1251,6 +1302,62 @@ private:
 
   //convert the low nybble of i to a hex char 0-9A-F
   static char to_hex(uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
+
+  static bool copy_bytes(const void *src, void *dest, const uint8_t num_bytes) {
+    for (uint8_t i = 0; i < num_bytes; i++) {
+      reinterpret_cast<uint8_t*>(dest)[i] = reinterpret_cast<const uint8_t*>(src)[i];
+    }
+    return true;
+  }
+
+  static const char * CCS(const void *s) { return reinterpret_cast<const char*>(s); }
+
+  static const FSH * CFSH(const void *s) { return reinterpret_cast<const FSH*>(s); }
+
+  static uint8_t * BP(void *p) { return reinterpret_cast<uint8_t*>(p); }
+
+  static const uint8_t * BP(const void *p) { return reinterpret_cast<const uint8_t*>(p); }
+
+  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
+  static int strcmp_PP(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    while (true) {
+      char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
+      if (ca != cb) return ca - cb;
+      if (!ca) return 0;
+    }
+  }
+
+#ifndef ARDUINO
+
+  //shims for building on native host, currently supports OS X and Linux including WSL
+
+  static const FSH *F(const char *p) { return p; }
+
+  template <typename T> static const T pgm_read_byte(const T *p) { return *p; }
+
+  static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
+
+  millis_t millis() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
+    static uint64_t start_ms = now_ms;
+    return now_ms - start_ms;
+  }
+
+  void delayMicroseconds(uint16_t us) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t start_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul, now_us;
+    do {
+      clock_gettime(CLOCK_MONOTONIC, &ts);
+      now_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul;
+    } while (now_us - start_us < us);
+  }
+#endif
 };
 
 #endif

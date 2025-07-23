@@ -43,7 +43,7 @@
 #include <sys/stat.h>
 #include <signal.h>
 
-#include <ArduMonBase.h>
+#include <ArduMon.h>
 
 template <size_t capacity> class CircBuf {
 public:
@@ -82,7 +82,7 @@ private:
   size_t write_idx = 0, read_idx = capacity;
 };
 
-template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonBase::Stream {
+template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonStream {
 public :
 
   CircBuf<in_cap> in;
@@ -107,31 +107,29 @@ public :
 
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
 
-#define WITH_INT64
-#define WITH_DOUBLE
 #define STREAM demo_stream
 #include "../demo.ino"
-//demo.ino defines the global ArduMonSlave isntance ams
+//demo.ino defines the global ArduMon isntance am
 
 int listen_socket;
 std::string socket_path;
 bool quit;
 
-bool quit_cmd(AMS *ams) { quit = true; return true; }
+bool quit_cmd(AM *am) { quit = true; return true; }
 
 void usage() { std::cerr << "USAGE: demo [-b|--binary] <unix_socket_filename>\n"; exit(1); }
 
 void status() {
   std::cout << demo_stream.in.status() << "\n";
   std::cout << demo_stream.out.status() << "\n";
-  std::cout << "command receive buffer: " << ams.get_recv_buf_used() << "/" << ams.get_recv_buf_size() << " used\n";
-  std::cout << "command response buffer: " << ams.get_send_buf_used() << "/" << ams.get_send_buf_size() << " used\n";
+  std::cout << "command receive buffer: " << am.get_recv_buf_used() << "/" << am.get_recv_buf_size() << " used\n";
+  std::cout << "command response buffer: " << am.get_send_buf_used() << "/" << am.get_send_buf_size() << " used\n";
   std::string state = "idle";
-  if (ams.is_receiving()) state = "receiving";
-  else if (ams.is_handling()) state = "handling";
-  if (ams.is_binary_mode()) state += " (binary)";
+  if (am.is_receiving()) state = "receiving";
+  else if (am.is_handling()) state = "handling";
+  if (am.is_binary_mode()) state += " (binary)";
   std::cout << "command interpreter " << state << "\n";
-  ArduMonBase::millis_t rtm = ams.get_recv_timeout_ms();
+  AM::millis_t rtm = am.get_recv_timeout_ms();
   if (rtm > 0) std::cout << "command receive timeout " << rtm << "ms\n";
   std::cout << "UNIX socket: " << socket_path << "\n";
   std::cout << std::flush;
@@ -182,13 +180,13 @@ int main(int argc, const char **argv) {
 
   std::cout << "adding demo commands\n";
   setup();
-  if (!ams.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error();
+  if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error();
   std::cout << "added "
-            << static_cast<int>(ams.get_num_cmds()) << "/" << static_cast<int>(ams.get_max_num_cmds()) << " commands\n";
+            << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds()) << " commands\n";
 
   if (binary) {
     std::cout << "switching to binary mode\n";
-    ams.set_binary_mode(true);
+    am.set_binary_mode(true);
   } else std::cout << "proceeding in text mode\n";
 
   char buf[2048];
@@ -230,7 +228,7 @@ int main(int argc, const char **argv) {
   fcntl(data_socket, F_SETFL, O_NONBLOCK);
 
   std::cout << "resetting command interpreter\n";
-  ams.reset();
+  am.reset();
   
   const uint32_t STATUS_MS = 2000;
   uint32_t ms_to_status = STATUS_MS;
@@ -249,10 +247,10 @@ int main(int argc, const char **argv) {
     
     loop();
     
-    AMS::Error e = ams.get_err();
-    if (e != AMS::Error::NONE) {
-      std::cerr << "command interpreter error: " << ams.err_msg(e) << "\n";
-      ams.clear_err();
+    AM::Error e = am.get_err();
+    if (e != AM::Error::NONE) {
+      std::cerr << "command interpreter error: " << am.err_msg(e) << "\n";
+      am.clear_err();
     }
     
     size_t ns = std::min(demo_stream.out.size(), sizeof(buf));

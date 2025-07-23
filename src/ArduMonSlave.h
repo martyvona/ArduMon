@@ -647,13 +647,14 @@ private:
   template <typename big_int, typename big_uint> //supports int32_t/uint32_t, int64_t/uint64_t
   bool parse_dec(const char *s, uint8_t *dest, const bool sgnd, const uint8_t num_bytes) {
 
-    const int8_t sign = s[0] == '-' ? -1 : +1;
-    s++;
+    const int8_t sign = *s == '-' ? -1 : +1;
 
     const bool neg = sign < 0;
     if (neg && !sgnd) return fail(Error::BAD_ARG);
     
-    while (*s == '0') s++; //skip leading zeros
+    if (*s == '-' || *s == '+') ++s; //skip leading sign
+
+    while (*s == '0' && *(s+1) != 0) ++s; //skip leading zeros
 
     uint8_t max_digits, last_chunk;
     switch (num_bytes) {
@@ -664,7 +665,7 @@ private:
     }
 
     const char *dig = s;
-    for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::RECV_OVERFLOW);
+    for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::BAD_ARG);
 
     //read digits from least to most significant in 4 digit chunks
     constexpr uint8_t num_chunks = sizeof(big_uint) > 4 ? 5 : 3;
@@ -679,7 +680,7 @@ private:
       }
     }
     
-    for (uint8_t c = last_chunk; c >= 0; c--) {
+    for (int8_t c = last_chunk; c >= 0; c--) {
       int16_t max_chunk;
       switch (num_bytes) {
         case 1: {
@@ -848,24 +849,27 @@ private:
 
     char buf[sizeof(big_uint) == 4 ? (1 + 10 + 1) : (1 + 20 + 1)];
     uint8_t i = len - 1;
-    buf[i] = '\0';
+    buf[i] = 0;
 
-    while (num > 10000) { //process 4 digit chunks with one big_uint divide per chunk, plus some 16 bit math
-      big_uint q = num / 10000;
-      uint16_t r = num - q * 10000;
-      num = q;
-      for (uint8_t j = 0; j < 5; j++) {
-        uint16_t qq = r / 10;
-        buf[--i] = '0' + (r - qq * 10);
-        r = qq;
+    if (!num) buf[--i] = '0';
+    else {
+      while (num > 10000) { //process 4 digit chunks with one big_uint divide per chunk, plus some 16 bit math
+        big_uint q = num / 10000;
+        uint16_t r = num - q * 10000;
+        num = q;
+        for (uint8_t j = 0; j < 4; j++) {
+          uint16_t qq = r / 10;
+          buf[--i] = '0' + (r - qq * 10);
+          r = qq;
+        }
       }
-    }
-    //if uint16_t is changed to big_uint below then the next loop would be sufficient on its own
-    //but the loop above reduces the amount of big_uint math
-    while (num) {
-      uint16_t q = num / 10;
-      buf[--i] = '0' + (num - q * 10);
-      num = q;
+      //if uint16_t is changed to big_uint below then the next loop would be sufficient on its own
+      //but the loop above reduces the amount of big_uint math
+      while (num) {
+        uint16_t q = num / 10;
+        buf[--i] = '0' + (num - q * 10);
+        num = q;
+      }
     }
   
     if (neg) buf[--i] = '-';

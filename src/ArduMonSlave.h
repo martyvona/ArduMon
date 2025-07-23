@@ -376,7 +376,8 @@ public:
   //text mode: move VT100 cursor n places in dir
   bool vt100_move_rel(const uint16_t n, const char dir) {
     if (binary_mode) return true;
-    return write_char('\x1B') && write_char('[') && send_raw(n) && write_char(dir);
+    return write_char('\x1B') && write_char('[') && (n < 10 ? send_raw(static_cast<char>('0' + n)) : send_raw(n)) &&
+      write_char(dir);
   }
 
   //binary mode: noop
@@ -499,15 +500,25 @@ private:
   //otherwise lookup first token as command name, if not found then BAD_CMD
   //otherwise set recv_ptr = recv_buf and call command handler
   bool handle_txt_command() {
+
     const uint16_t len = recv_ptr - recv_buf + 1;
-    if (len == 1) return end_cmd(true); //ignore empty command, e.g. if received just '\r' or '\n'
+
+    if (len <= 1) return end_cmd(true); //ignore empty command, e.g. if received just '\r' or '\n'
+
+    const bool save_cmd = (len + 1) <= recv_buf_sz/2; //save cmd to upper half of recv_buf if possible for history
+    if (save_cmd) recv_buf[recv_buf_sz/2] = '\n'; //saved command is signaled by recv_buf[recv_buf_sz/2] = '\n'
+
     bool in_str = false, in_chr = false;
     uint16_t j = 0; //write index
-    for (uint16_t i = 0; i < len && j < len; i++, j++) {
+    for (uint16_t i = 0; i < len; i++, j++) {
 
       char c = reinterpret_cast<char *>(recv_buf)[i];
 
-      if (c == '\\' && (in_str || in_chr)) {
+      const bool comment_start = !in_str && !in_chr && c == '#';
+
+      if (save_cmd) recv_buf[recv_buf_sz/2 + i + 1] = (comment_start || c == '\n' || c == '\r')  ? 0 : c;
+
+      if ((in_str || in_chr) && c == '\\') {
         if (i == len - 1) return fail(Error::BAD_ARG);
         c = unescape(recv_buf[++i]);
       }
@@ -515,19 +526,27 @@ private:
       else if (!in_str && c == '\'') { in_chr = !in_chr;  c = 0; } //start/end of char
       else if (!in_str && !in_chr && isspace(c)) c = 0; //split on whitespace including terminating '\r' or '\n'
 
-      if (!in_str && !in_chr && c == '#') while (j < len) recv_buf[j++] = 0; //ignore comment
+      if (comment_start) { while (j < len) recv_buf[j++] = 0; break; } //ignore comment
       else recv_buf[j] = c;
     }
+
     if (in_str || in_chr) return fail(Error::BAD_ARG);
-    while (j < recv_buf_sz) recv_buf[j++] = 0;
+
+    while (j < recv_buf_sz/2) recv_buf[j++] = 0;
+    if (!save_cmd) while (j < recv_buf_sz) recv_buf[j++] = 0;
+
     recv_ptr = recv_buf;
+
     while (*recv_ptr == 0) { //skip leading spaces, which are now 0s
-      if (++recv_ptr == recv_buf + recv_buf_sz) return end_cmd(true); //ignore empty command
+      if (++recv_ptr == recv_buf + recv_buf_sz || *recv_ptr == '\n') return end_cmd(true); //ignore empty command
     }
+
     uint8_t *tmp = recv_ptr;
     const char *cmd = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
+
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
+
     return fail(Error::BAD_CMD);
   }
 
@@ -545,6 +564,7 @@ private:
       if (recv_ptr + binary_bytes >= recv_buf + recv_buf[0]) FAIL;
       recv_ptr += binary_bytes;
     } else {
+      if (*ret == '\n') FAIL; //start of saved command
       while (*recv_ptr) if (++recv_ptr == recv_buf + recv_buf_sz) FAIL; //skip non-null characters of current token
       while (*recv_ptr == 0) if (++recv_ptr == recv_buf + recv_buf_sz) break; //skip null separators
     }
@@ -1093,6 +1113,7 @@ private:
           //catch and ignore VT100 cursor movement sequences up [A, down [B, right [C, left [D
           //these are sent by minicom when the user hits the arrow keys on the keyboard
           //we unfortunately don't support command line editing with these
+          //except for possibly 1 line of command history, if there was room in the upper half of recv_buf
           bool esc_seq_end = (*recv_ptr >= 'A' && *recv_ptr <= 'D') &&
             recv_ptr > (recv_buf+1) && *(recv_ptr-1) == '[' && *(recv_ptr-2) == 27;
 
@@ -1100,7 +1121,18 @@ private:
 
           if (txt_echo && !(esc_seq_end || esc_seq_pending)) write_char(*recv_ptr);
 
-          if (esc_seq_end) recv_ptr -= 2; else ++recv_ptr;
+          if (!esc_seq_end) ++recv_ptr;
+          else if (*recv_ptr == 'A' && (recv_ptr - recv_buf) < recv_buf_sz/2 && recv_buf[recv_buf_sz/2] == '\n') {
+            //user hit up arrow and we have a saved previous command: switch to it
+            write_str(VT100_CLEAR_LINE);
+            send_txt_prompt();
+            recv_ptr = recv_buf;
+            for (uint16_t i = recv_buf_sz/2 + 1; i < recv_buf_sz && recv_buf[i]; i++) {
+              write_char(recv_buf[i]);
+              *recv_ptr++ = recv_buf[i];
+            }
+          }
+          else recv_ptr -= 2;  //esc_seq_end but wasn't up arrow or we didn't have saved command: ignore escape sequence
         }
       }
     }

@@ -63,6 +63,90 @@ template <typename T> bool echo(AM *am) {
   T v; return am->recv() && am->recv(&v) && am->send(v) && am->send_CRLF() && am->end_cmd();
 }
 
+class Timer {
+public:
+
+  Timer(AM *_am, uint8_t h, uint8_t m, uint8_t s, float _accel) :
+    am(_am),
+    running(true),
+    accel(_accel),
+    total_ms((h * 3600 + m * 60 + s) * 1000ul),
+    start_ms(millis()) {
+    am->send_raw(F("counting down from "));
+    am->send_raw(h);
+    am->send_raw(':');
+    am->send_raw(m, 2|AM::FMT_PAD_ZERO);
+    am->send_raw(':');
+    am->send_raw(s, 2|AM::FMT_PAD_ZERO);
+    am->send_raw(F(", accel="));
+    am->send_raw(accel);
+    am->send_raw(F(", hit any key to cancel..."));
+    am->send_CRLF();
+    am->send_raw(AM::VT100_CURSOR_HIDDEN);
+  }
+
+  bool tick() {
+    if (!running) return false;
+    uint8_t h, m, s; uint16_t ms = 0;
+    const unsigned long elapsed_ms = (millis() - start_ms) * accel;
+    const bool quit = am->get_stream()->available() > 0;
+    while (am->get_stream()->available()) am->get_stream()->read();
+    if (elapsed_ms >= total_ms || quit) {
+      h = m = s = 0; ms = 0;
+      running = false;
+    } else {
+      const unsigned long remaining_ms = total_ms - elapsed_ms;
+      h = remaining_ms / (3600 * 1000ul);
+      m = (remaining_ms - h * 3600 * 1000ul) / (60 * 1000ul);
+      s = (remaining_ms - (h * 3600 + m * 60) * 1000ul) / 1000ul;
+      ms = remaining_ms - (h * 3600 + m * 60 + s) * 1000ul;
+    }
+    am->send_raw(AM::VT100_CLEAR_LINE);
+    am->send_raw(h, 3|AM::FMT_PAD_ZERO);
+    am->send_raw(':');
+    am->send_raw(m, 2|AM::FMT_PAD_ZERO);
+    am->send_raw(':');
+    am->send_raw(s, 2|AM::FMT_PAD_ZERO);
+    am->send_raw('.');
+    am->send_raw(ms, 3|AM::FMT_PAD_ZERO);
+    if (!running) {
+      am->send_CRLF();
+      am->send_raw(AM::VT100_CURSOR_VISIBLE);
+      am->end_cmd();
+    }
+    return running;
+  }
+
+private:
+
+  AM * const am;
+  bool running;
+  const float accel;
+  const unsigned long total_ms, start_ms;
+
+#ifndef ARDUINO
+  unsigned long millis() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
+    static uint64_t start_ms = now_ms;
+    return now_ms - start_ms;
+  }
+#endif
+};
+
+Timer *timer = nullptr;
+
+bool start_timer(AM *am) {
+  if (!am->recv()) return false; //skip over command token
+  uint8_t h, m, s;
+  if (!am->recv(&h) || !am->recv(&m) || !am->recv(&s)) return false;
+  float accel = 1;
+  if (am->argc() > 4 && !am->recv(&accel)) return false;
+  timer = new Timer(am, h, m, s, accel);
+  return true;
+}
+
 template <typename T> bool echo_int(AM *am) {
   T v; if (!am->recv() || !am->recv(&v)) return false;
   const uint8_t argc = am->argc();
@@ -124,23 +208,24 @@ void add_cmds() {
   ADD_CMD(help, "help", "show commands");
   ADD_CMD(help, "?", "show commands");
   ADD_CMD(argc, "argc", "show arg count");
+  ADD_CMD(start_timer, "timer", "hours minutes seconds [accel] | countdown timer");
   ADD_CMD(echo_char, "ec", "echo char");
   ADD_CMD(echo_str, "es", "echo str");
   ADD_CMD(echo_bool, "eb", "echo bool");
-  ADD_CMD(echo_u8, "eu8", "[hex [width [pad_zero [pad_right]]]] echo uint8");
-  ADD_CMD(echo_s8, "es8", "[hex [width [pad_zero [pad_right]]]] echo int8");
-  ADD_CMD(echo_u16, "eu16", "[hex [width [pad_zero [pad_right]]]] echo uint16");
-  ADD_CMD(echo_s16, "es16", "[hex [width [pad_zero [pad_right]]]] echo int16");
-  ADD_CMD(echo_u32, "eu32", "[hex [width [pad_zero [pad_right]]]] echo uint32");
-  ADD_CMD(echo_s32, "es32", "[hex [width [pad_zero [pad_right]]]] echo int32");
+  ADD_CMD(echo_u8, "eu8", "[hex [width [pad_zero [pad_right]]]] | echo uint8");
+  ADD_CMD(echo_s8, "es8", "[hex [width [pad_zero [pad_right]]]] | echo int8");
+  ADD_CMD(echo_u16, "eu16", "[hex [width [pad_zero [pad_right]]]] | echo uint16");
+  ADD_CMD(echo_s16, "es16", "[hex [width [pad_zero [pad_right]]]] | echo int16");
+  ADD_CMD(echo_u32, "eu32", "[hex [width [pad_zero [pad_right]]]] | echo uint32");
+  ADD_CMD(echo_s32, "es32", "[hex [width [pad_zero [pad_right]]]] | echo int32");
 #ifdef WITH_INT64
-  ADD_CMD(echo_u64, "eu64", "[hex [width [pad_zero [pad_right]]]] echo uint64");
-  ADD_CMD(echo_s64, "es64", "[hex [width [pad_zero [pad_right]]]] echo int64");
+  ADD_CMD(echo_u64, "eu64", "[hex [width [pad_zero [pad_right]]]] | echo uint64");
+  ADD_CMD(echo_s64, "es64", "[hex [width [pad_zero [pad_right]]]] | echo int64");
 #endif
 #ifdef WITH_FLOAT
-  ADD_CMD(echo_float, "ef", "[scientific [precision [width]]] echo float");
+  ADD_CMD(echo_float, "ef", "[scientific [precision [width]]] | echo float");
 #ifdef WITH_DOUBLE
-  ADD_CMD(echo_float, "ed", "[scientific [precision [width]]] echo double");
+  ADD_CMD(echo_float, "ed", "[scientific [precision [width]]] | echo double");
 #endif
 #endif
 
@@ -161,5 +246,6 @@ void loop() {
 #ifndef BASELINE_MEM
   am.update();
 #endif
+  if (timer && !timer->tick()) { delete timer; timer = nullptr; }
 }
 

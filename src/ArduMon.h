@@ -130,6 +130,8 @@ public:
   ArduMon(const bool binary = !with_text) : ArduMon(&Serial, binary) { }
 #endif
 
+  Stream *get_stream() { return stream; }
+
   Error get_err() { return err; }
 
   //once an error state is set it is sticky; any further errors will not overwrite it until clear_err() is called
@@ -413,24 +415,24 @@ public:
     return write_float(v, scientific, precision, width);
   }
 
-  //some useful VT100 control codes for send_raw()
-  //"\x1B" is ASCII 27 which is ESC
-#ifndef ARDUINO
+#ifndef __AVR__
 #define PROGMEM
+#define FSH char
 #endif
-  const FSH *VT100_INIT PROGMEM = CFSH("\x1B\x63");
-  const FSH *VT100_CLEAR PROGMEM = CFSH("\x1B[2J");
-  const FSH *VT100_CLEAR_LINE PROGMEM = CFSH("\r\x1B[2K"); //and move cursor to beginning of line
-  const FSH *VT100_CURSOR_VISIBLE PROGMEM = CFSH("\x1B[?25h");
-  const FSH *VT100_CURSOR_HIDDEN PROGMEM = CFSH("\x1B[?25l");
-  const FSH *VT100_CURSOR_HOME PROGMEM = CFSH("\x1B[H"); //move to upper left corner
-  const FSH *VT100_CURSOR_SAVE PROGMEM = CFSH("\x1B[7"); //save position and attributes
-  const FSH *VT100_CURSOR_RESTORE PROGMEM = CFSH("\x1B[8"); //restore position and attributes
-#ifndef ARDUINO
+  static constexpr const FSH * VT100_INIT PROGMEM = (const FSH *)"\x1B\x63";
+  static constexpr const FSH * VT100_CLEAR PROGMEM = (const FSH *)"\x1B[2J";
+  static constexpr const FSH * VT100_CLEAR_LINE PROGMEM = (const FSH *)"\r\x1B[2K"; //and move to start of line
+  static constexpr const FSH * VT100_CURSOR_VISIBLE PROGMEM = (const FSH *)"\x1B[?25h";
+  static constexpr const FSH * VT100_CURSOR_HIDDEN PROGMEM = (const FSH *)"\x1B[?25l";
+  static constexpr const FSH * VT100_CURSOR_HOME PROGMEM = (const FSH *)"\x1B[H"; //move to upper left corner
+  static constexpr const FSH * VT100_CURSOR_SAVE PROGMEM = (const FSH *)"\x1B[7"; //save position and attributes
+  static constexpr const FSH * VT100_CURSOR_RESTORE PROGMEM = (const FSH *)"\x1B[8"; //restore position and attributes
+#ifndef __AVR__ 
+#undef FSH
 #undef PROGMEM
 #endif
 
-  const char VT100_UP = 'A', VT100_DOWN = 'B', VT100_RIGHT = 'C', VT100_LEFT = 'D';
+  static const char VT100_UP = 'A', VT100_DOWN = 'B', VT100_RIGHT = 'C', VT100_LEFT = 'D';
 
   //binary mode: noop
   //text mode: move VT100 cursor n places in dir
@@ -508,7 +510,7 @@ private:
   bool add_cmd_impl(const handler_t func, const char *name, const uint8_t code, const char *desc, const bool progmem) {
     if (n_cmds == max_num_cmds) return fail(Error::CMD_OVERFLOW);
     for (uint8_t i = 0; i < n_cmds; i++) {
-      if (name && ((progmem && cmds[i].is(CFSH(name))) || (!progmem && cmds[i].is(name)))) {
+      if (name && ((progmem && cmds[i].is(reinterpret_cast<const FSH*>(name))) || (!progmem && cmds[i].is(name)))) {
         return fail(Error::CMD_OVERFLOW);
       }
       if (cmds[i].code == code) return fail(Error::CMD_OVERFLOW);
@@ -1393,8 +1395,6 @@ private:
   }
 
   static const char * CCS(const void *s) { return reinterpret_cast<const char*>(s); }
-
-  static const FSH * CFSH(const void *s) { return reinterpret_cast<const FSH*>(s); }
 
   static uint8_t * BP(void *p) { return reinterpret_cast<uint8_t*>(p); }
 

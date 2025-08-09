@@ -64,11 +64,17 @@ template <typename T> bool echo(AM *am) {
 }
 
 template <typename T> bool echo_int(AM *am) {
-  const char *cmd;
-  if (!am->recv(&cmd)) return false;
-  const char *end= cmd; while (*end) ++end;
-  const bool hex = *(end-1) == 'h';
-  T v; return am->recv(&v, hex) && am->send(v, hex) && am->send_CRLF() && am->end_cmd();
+  T v; if (!am->recv() || !am->recv(&v)) return false;
+  const uint8_t argc = am->argc();
+  bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
+  if (argc > 2 && !am->recv(&hex)) return false;
+  if (argc > 3 && !am->recv(&width)) return false;
+  if (argc > 4 && !am->recv(&pad_zero)) return false;
+  if (argc > 5 && !am->recv(&pad_right)) return false;
+  if (width > 31) width = 31;
+  const uint8_t fmt =
+    width | (hex ? AM::FMT_HEX : 0) | (pad_zero ? AM::FMT_PAD_ZERO : 0) | (pad_right ? AM::FMT_PAD_RIGHT : 0);
+  return am->send_raw(v, fmt) && (!pad_right || pad_zero || am->send_raw('|')) && am->send_CRLF() && am->end_cmd();
 }
 
 template <typename T> bool echo_flt(AM *am) {
@@ -121,23 +127,15 @@ void add_cmds() {
   ADD_CMD(echo_char, "ec", "echo char");
   ADD_CMD(echo_str, "es", "echo str");
   ADD_CMD(echo_bool, "eb", "echo bool");
-  ADD_CMD(echo_s8, "es8", "echo int8");
-  ADD_CMD(echo_s8, "es8h", "echo int8 hex");
-  ADD_CMD(echo_u8, "eu8", "echo uint8");
-  ADD_CMD(echo_u8, "eu8h", "echo uint8 hex");
-  ADD_CMD(echo_s16, "es16", "echo int16");
-  ADD_CMD(echo_s16, "es16h", "echo int16 hex");
-  ADD_CMD(echo_u16, "eu16", "echo uint16");
-  ADD_CMD(echo_u16, "eu16h", "echo uint16 hex");
-  ADD_CMD(echo_s32, "es32", "echo int32");
-  ADD_CMD(echo_s32, "es32h", "echo int32 hex");
-  ADD_CMD(echo_u32, "eu32", "echo uint32");
-  ADD_CMD(echo_u32, "eu32h", "echo uint32 hex");
+  ADD_CMD(echo_u8, "eu8", "[hex [width [pad_zero [pad_right]]]] echo uint8");
+  ADD_CMD(echo_s8, "es8", "[hex [width [pad_zero [pad_right]]]] echo int8");
+  ADD_CMD(echo_u16, "eu16", "[hex [width [pad_zero [pad_right]]]] echo uint16");
+  ADD_CMD(echo_s16, "es16", "[hex [width [pad_zero [pad_right]]]] echo int16");
+  ADD_CMD(echo_u32, "eu32", "[hex [width [pad_zero [pad_right]]]] echo uint32");
+  ADD_CMD(echo_s32, "es32", "[hex [width [pad_zero [pad_right]]]] echo int32");
 #ifdef WITH_INT64
-  ADD_CMD(echo_s64, "es64", "echo int64");
-  ADD_CMD(echo_s64, "es64h", "echo int64 hex");
-  ADD_CMD(echo_u64, "eu64", "echo uint64");
-  ADD_CMD(echo_u64, "eu64h", "echo uint64 hex");
+  ADD_CMD(echo_u64, "eu64", "[hex [width [pad_zero [pad_right]]]] echo uint64");
+  ADD_CMD(echo_s64, "es64", "[hex [width [pad_zero [pad_right]]]] echo int64");
 #endif
 #ifdef WITH_FLOAT
   ADD_CMD(echo_float, "ef", "[scientific [precision [width]]] echo float");

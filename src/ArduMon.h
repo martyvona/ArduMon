@@ -360,27 +360,34 @@ public:
     return write_bool(v, style, upper_case);
   }
 
+  static const uint8_t FMT_HEX = 0x80, FMT_PAD_ZERO = 0x40, FMT_PAD_RIGHT = 0x20;
+
   //binary mode: send a little-endian integer of the indicated size
   //text mode: send space separator if necessary, then send decimal or hexadecimal integer
-  bool send(const  uint8_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const   int8_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const uint16_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const  int16_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const uint32_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const  int32_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const uint64_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
-  bool send(const  int64_t v, const bool hex = false) { return send_txt_sep() && send_raw(v, hex); }
+  //fmt ignored in binary; in text mode it is a bitmask of FMT_* flags with low bits specifying the minimum field width
+  //with FMT_HEX width can be at most 31
+  //otherwise width will be clamped to 21 for [u]int64_t and 11 for the other int types
+  bool send(const  uint8_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const   int8_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const uint16_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const  int16_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const uint32_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const  int32_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const uint64_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
+  bool send(const  int64_t v, const uint8_t fmt = 0) { return send_txt_sep() && send_raw(v, fmt); }
 
   //binary mode: send an integer of the indicated size
   //text mode: send decimal or hexadecimal integer
-  bool send_raw(const  uint8_t v, const bool hex = false) { return write_int(BP(&v), false, 1, hex); }
-  bool send_raw(const   int8_t v, const bool hex = false) { return write_int(BP(&v), true,  1, hex); }
-  bool send_raw(const uint16_t v, const bool hex = false) { return write_int(BP(&v), false, 2, hex); }
-  bool send_raw(const  int16_t v, const bool hex = false) { return write_int(BP(&v), true,  2, hex); }
-  bool send_raw(const uint32_t v, const bool hex = false) { return write_int(BP(&v), false, 4, hex); }
-  bool send_raw(const  int32_t v, const bool hex = false) { return write_int(BP(&v), true,  4, hex); }
-  bool send_raw(const uint64_t v, const bool hex = false) { return write_int(BP(&v), false, 8, hex); }
-  bool send_raw(const  int64_t v, const bool hex = false) { return write_int(BP(&v), true,  8, hex); }
+  //fmt ignored in binary; in text mode it is a bitmask of FMT_* flags with low bits specifying the minimum field width
+  //field width will be clamped to 21 for [u]int64_t and 11 for the other int types
+  bool send_raw(const  uint8_t v, const uint8_t fmt = 0) { return write_int(BP(&v), false, 1, fmt); }
+  bool send_raw(const   int8_t v, const uint8_t fmt = 0) { return write_int(BP(&v), true,  1, fmt); }
+  bool send_raw(const uint16_t v, const uint8_t fmt = 0) { return write_int(BP(&v), false, 2, fmt); }
+  bool send_raw(const  int16_t v, const uint8_t fmt = 0) { return write_int(BP(&v), true,  2, fmt); }
+  bool send_raw(const uint32_t v, const uint8_t fmt = 0) { return write_int(BP(&v), false, 4, fmt); }
+  bool send_raw(const  int32_t v, const uint8_t fmt = 0) { return write_int(BP(&v), true,  4, fmt); }
+  bool send_raw(const uint64_t v, const uint8_t fmt = 0) { return write_int(BP(&v), false, 8, fmt); }
+  bool send_raw(const  int64_t v, const uint8_t fmt = 0) { return write_int(BP(&v), true,  8, fmt); }
 
   //binary mode: send little-endian float or double bytes
   //text mode: send space separator if necessary, then send float or double as decimal or scientific
@@ -871,7 +878,7 @@ private:
   //binary mode: append num_bytes int to send buffer
   //text mode: append num_bytes int starting at v as decimal or hexadecimal string in send buffer
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
-  bool write_int(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const bool hex) {
+  bool write_int(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const uint8_t fmt) {
 
     if (binary_mode || !with_text) {
       if (!check_write(num_bytes)) return fail(Error::SEND_OVERFLOW);
@@ -879,9 +886,14 @@ private:
       return true;
     }
 
-    if (hex) {
+    if (fmt&FMT_HEX) {
       uint8_t * const write_start = send_write_ptr;
+      const uint8_t width = fmt&(~(FMT_HEX|FMT_PAD_ZERO|FMT_PAD_RIGHT));
+      const char c = fmt&FMT_PAD_ZERO ? '0' : ' ';
+      const uint8_t pad = width > 2*num_bytes ? width - 2*num_bytes : 0;
+      if (pad && !(fmt&FMT_PAD_RIGHT)) for (uint8_t i = 0; i < pad; i++) put(c);
       for (uint8_t i = num_bytes; i > 0; i--) { put(to_hex(v[i-1] >> 4)); put(to_hex(v[i-1] & 0x0f)); }
+      if (pad && (fmt&FMT_PAD_RIGHT)) for (uint8_t i = 0; i < pad; i++) put(c);
       if (!send_read_ptr) send_read_ptr = write_start; //enable sending
       return true;
     }
@@ -893,7 +905,8 @@ private:
     //but that increases progmem usage, probably not worth it
 
     if (num_bytes <= sizeof(long) || sizeof(long) <= max_bytes) {
-      char buf[2 + sizeof(long) > 4 ? 20 : sizeof(long) > 2 ? 10 : 5];
+      constexpr uint8_t buf_sz = 2 + (sizeof(long) > 4 ? 20 : 10);
+      char buf[buf_sz];
       if (sgnd) {
         //sign extend: if sign bit (high bit of high byte) is set initialize to -1 which is all 1s in binary, else 0
         long i = v[num_bytes-1]&0x80 ? -1 : 0;
@@ -912,20 +925,21 @@ private:
         snprintf(buf, sizeof(buf), "%lu", i);
 #endif
       }
+      pad(buf, buf_sz, fmt);
       return write_str(buf);
     }
 
     //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
     //but just in case, handle the case that sizeof(long) < 4 as well, though compiler will usually optimize it out
-    if (num_bytes <= 4 && sizeof(long) < 4) return write_dec<uint32_t>(v, sgnd, num_bytes);
+    if (num_bytes <= 4 && sizeof(long) < 4) return write_dec<uint32_t>(v, sgnd, num_bytes, fmt);
 
-    if (with_int64) return write_dec<uint64_t>(v, sgnd, num_bytes);
+    if (with_int64) return write_dec<uint64_t>(v, sgnd, num_bytes, fmt);
 
     return fail(Error::UNSUPPORTED);
   }
 
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
-  bool write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes) {
+  bool write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const uint8_t fmt) {
 
     if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
 
@@ -944,7 +958,8 @@ private:
     for (uint8_t i = 0; i < num_bytes; i++) *(BP(&num) + i) = neg ? ~v[i] : v[i];
     if (neg) ++num;
 
-    char buf[sizeof(big_uint) == 4 ? (1 + 10 + 1) : (1 + 20 + 1)];
+    constexpr uint8_t buf_sz = 2 + (sizeof(big_uint) > 4 ? 20 : 10);
+    char buf[buf_sz];
     uint8_t i = len - 1;
     buf[i] = 0;
 
@@ -956,6 +971,7 @@ private:
         num = q;
         for (uint8_t j = 0; j < 4; j++) {
           uint16_t qq = r / 10;
+          if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
           buf[--i] = '0' + (r - qq * 10);
           r = qq;
         }
@@ -964,14 +980,22 @@ private:
       //but the loop above reduces the amount of big_uint math
       while (num) {
         uint16_t q = num / 10;
+        if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
         buf[--i] = '0' + (num - q * 10);
         num = q;
       }
     }
   
-    if (neg) buf[--i] = '-';
+    if (neg) {
+      if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
+      buf[--i] = '-';
+    }
 
-    return write_str(buf + i, false, false, len - i);
+    if (i > 0) for (uint8_t j = 0; i < len; i++, j++) buf[j] = buf[i];
+
+    pad(buf, buf_sz, fmt);
+
+    return write_str(buf);
   }
 
   //binary mode: append float or double v to send buffer
@@ -1023,7 +1047,7 @@ private:
       snprintf(buf, buf_sz, fmt, v);
 #endif
       if (precision < 0) trim_backwards(buf, buf_sz - 1);
-      return write_str(buf, false, false, -1);
+      return write_str(buf);
     }
   }
 
@@ -1300,6 +1324,28 @@ private:
     uint8_t i = start;
     while (i >= 0 && (s[i - 1] != '.') && (s[i] == 0 || s[i] == '0' || s[i] == ' ')) s[i--] = '\0';
     return i;
+  }
+
+  void pad(char *buf, const uint8_t buf_sz, const uint8_t fmt) {
+    uint8_t width = fmt&(~(FMT_HEX|FMT_PAD_ZERO|FMT_PAD_RIGHT)); //shouldn't get here if FMT_HEX
+    if (!width) return;
+    if (width >= buf_sz) width = buf_sz - 1;
+    const char c = fmt&FMT_PAD_ZERO ? '0' : ' ';
+    if (fmt&FMT_PAD_RIGHT) {
+      uint8_t pad = width, i = 0;
+      while (i < buf_sz && pad > 0 && buf[i]) { ++i; --pad; }
+      while (i < buf_sz && pad > 0) { buf[i++] = c; --pad; }
+      buf[i] = 0;
+    } else {
+      uint8_t len = 0;
+      while (len < buf_sz && buf[len]) ++len;
+      if (len < width) {
+        int8_t i = len - 1, j = width;
+        buf[j--] = 0;
+        while (j >= 0) buf[j--] = i >= 0 ? buf[i--] : c;
+        if (c == '0' && buf[width - len] == '-') { buf[width - len] = '0'; buf[0] = '-'; }
+      }
+    }
   }
 
   //return escape char if c needs to be backslash escaped, else return 0

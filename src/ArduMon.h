@@ -57,23 +57,25 @@ public:
 //
 //recv_buf_sz is the recieve buffer size in bytes
 //in text mode the receive buffer must be large enough to hold the largest commandline
-//in binary mode the receive buffer must be large enough to hold the largest incoming packet
-//(all packets are no larger than 256 bytes)
-//recv_buf_sz can be set to 0 for an application that only sends (which would be unusual, but is possible)
-//(technically an array cannot have 0 length but we handle that by substituting 1 for 0 when we create the buffer)
+//command history in text mode requires a receive buffer is large enough to hold both the current and the previous cmd
+//in binary mode the receive buffer must be large enough to hold the largest incoming packet (limited to 256 bytes)
+//recv_buf_sz can be set to 0 for an application that only sends (unusual, but possible)
+//(an array cannot have 0 length but we handle that internally by substituting 1 for 0 when we create the buffer)
 //
 //send_buf_sz is the send buffer size in bytes
-//the send buffer is not used in text mode, and send_buf_sz can be set to 0 if binary mode will not be used
-//in binary mode the send buffer must be large enough to hold the largest outgoing packet
+//the send buffer is not used in text mode; send_buf_sz can be set to 0 if binary mode will not be used
+//in binary mode the send buffer must be large enough to hold the largest outgoing packet (limited to 256 bytes)
 //send_buf_sz can be set to 0 for an application that only receives
 //
 //with_int64 = false saves ~200 bytes on AVR if you don't need (u)int64 support
+//with_float = false saves ~3k bytes on AVR if you don't need float or double support
 //with_double = false only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
 //
 //with_binary = false saves ~700 bytes on AVR
-//with_text = false saves ~10k bytes on AVR
+//with_text = false saves ~8k bytes on AVR
 template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256,
-          bool with_int64 = false, bool with_double = false, bool with_binary = true, bool with_text = true>
+          bool with_int64 = true, bool with_float = true, bool with_double = true,
+          bool with_binary = true, bool with_text = true>
 class ArduMon {
 public:
 
@@ -671,7 +673,10 @@ private:
       return true;
     }
 
-    if (num_bytes <= sizeof(long)) {
+    constexpr uint8_t max_bytes = with_int64 ? 8 : 4;
+    if (num_bytes > max_bytes) return fail(Error::UNSUPPORTED);
+
+    if (num_bytes <= sizeof(long) || sizeof(long) <= max_bytes) {
       long unsigned int ret = 0;
       char *e;
       const char *expected_e = s; while (*expected_e) ++expected_e;
@@ -713,6 +718,8 @@ private:
   //parse a null terminated decimal int from s to num_bytes at dest
   template <typename big_int, typename big_uint> //supports int32_t/uint32_t, int64_t/uint64_t
   bool parse_dec(const char *s, uint8_t *dest, const bool sgnd, const uint8_t num_bytes) {
+
+    if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
 
     const int8_t sign = *s == '-' ? -1 : +1;
 
@@ -804,6 +811,7 @@ private:
   //binary mode: copy a 4 byte float or 8 byte double from v to dest
   //text mode: parse a null terminated decimal or scientific number from v to a 4 byte float or 8 byte double at dest
   template <typename T> bool parse_float(const uint8_t *v, T *dest) {
+    if (!with_float) return fail(Error::UNSUPPORTED);
     if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode || !with_text) { copy_bytes(v, dest, sizeof(T)); return true; }
     const char *s = CCS(v);
@@ -832,9 +840,9 @@ private:
 
   //binary mode: Error::UNSUPPORTED
   //text mode: append string to send buffer, not including terminating null
-  //in both cases assume string is supplied in program memory in uppercase, convert to lowercase iff to_lower is true
+  //assume string is supplied in program memory in uppercase, convert to lowercase iff to_lower is true
   bool write_case_str(const FSH *uppercase, const bool to_lower) {
-    if (binary_mode) return fail(Error::UNSUPPORTED);
+    if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
     uint8_t len = 0; while (CCS(uppercase)[len] != 0) ++len;
     uint8_t * const write_start = send_write_ptr;
     for (uint8_t i = 0; i < len + 1; i++) {
@@ -863,10 +871,13 @@ private:
       return true;
     }
 
+    constexpr uint8_t max_bytes = with_int64 ? 8 : 4;
+    if (num_bytes > max_bytes) return fail(Error::UNSUPPORTED);
+
     //itoa() and utoa() could be used here if num_bytes <= sizeof(int)
     //but that increases progmem usage, probably not worth it
 
-    if (num_bytes <= sizeof(long)) {
+    if (num_bytes <= sizeof(long) || sizeof(long) <= max_bytes) {
       char buf[2 + sizeof(long) > 4 ? 20 : sizeof(long) > 2 ? 10 : 5];
       if (sgnd) {
         //sign extend: if sign bit (high bit of high byte) is set initialize to -1 which is all 1s in binary, else 0
@@ -900,6 +911,8 @@ private:
 
   template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
   bool write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes) {
+
+    if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
 
     const bool neg = sgnd && (v[num_bytes - 1] & 0x80);
 
@@ -951,6 +964,7 @@ private:
   //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
   template <typename T> //supports float and double
   bool write_float(const T v, const bool scientific, const int8_t precision, const int8_t width) {
+    if (!with_float) return fail(Error::UNSUPPORTED);
     constexpr uint8_t nb = with_double ? sizeof(T) : sizeof(float); //4 or 8
     if (nb < sizeof(T)) return fail(Error::UNSUPPORTED); //T = double, sizeof(double) > sizeof(float), !with_double
     if (binary_mode || !with_text) {

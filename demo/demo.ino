@@ -6,6 +6,10 @@
 #define WITH_INT64 true
 #endif
 
+#ifndef WITH_FLOAT
+#define WITH_FLOAT true
+#endif
+
 #ifndef WITH_DOUBLE
 #define WITH_DOUBLE true
 #endif
@@ -34,7 +38,7 @@
 #define SEND_BUF_SZ 128
 #endif
 
-typedef ArduMon<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ, WITH_INT64, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
+typedef ArduMon<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
 
 #ifdef ARDUINO
 void println(const __FlashStringHelper *str) { Serial.println(str); }
@@ -78,9 +82,11 @@ bool echo_s32(AM *am) { return echo_int<int32_t>(am); }
 bool echo_u64(AM *am) { return echo_int<uint64_t>(am); }
 bool echo_s64(AM *am) { return echo_int<int64_t>(am); }
 #endif
+#ifdef WITH_FLOAT
 bool echo_float(AM *am) { return echo<float>(am); }
 #ifdef WITH_DOUBLE
 bool echo_double(AM *am) { return echo<double>(am); }
+#endif
 #endif
 
 void show_error(AM* am) {
@@ -120,9 +126,11 @@ void add_cmds() {
   ADD_CMD(echo_u64, "eu64", "echo uint64");
   ADD_CMD(echo_u64, "eu64h", "echo uint64 hex");
 #endif
+#ifdef WITH_FLOAT
   ADD_CMD(echo_float, "ef", "echo float");
 #ifdef WITH_DOUBLE
   ADD_CMD(echo_float, "ed", "echo double");
+#endif
 #endif
 
 #undef ADD_CMD

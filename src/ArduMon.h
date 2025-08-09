@@ -1179,7 +1179,11 @@ private:
           //in that situation the newline could be platform dependent, e.g. '\n' on Unix and OS X, "\r\n" on Windows
           //if we receive "\r\n" that will just incur an extra empty command
           //automation would typically not turn on txt_echo
-          //though if it does, it can deal with the separate "\r\n" echo for both '\r' and '\n'
+          //if it does, it can deal with the separate "\r\n" echo for both '\r' and '\n'
+          //(Also remember that only one command can be handled at a time and that data received while handling a
+          //command will fill the Arduino serial receive buffer, which is typically 64 bytes.  So e.g. at 115200 8N1 a
+          //each command handler has about 5ms to complete before the next command will overflow the receive buffer if
+          //a script is being piped into the serial port.)
           receiving = false; handling = true;
           ok = handle_txt_command();
           if (!ok) fail(Error::BAD_HANDLER, false);
@@ -1333,7 +1337,7 @@ private:
   }
 
   //convert the low nybble of i to a hex char 0-9A-F
-  static char to_hex(uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
+  static char to_hex(const uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
 
   static bool copy_bytes(const void *src, void *dest, const uint8_t num_bytes) {
     for (uint8_t i = 0; i < num_bytes; i++) {
@@ -1356,7 +1360,7 @@ private:
     if (!a) return -1;
     if (!b) return 1;
     while (true) {
-      char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
+      const char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
       if (ca != cb) return ca - cb;
       if (!ca) return 0;
     }

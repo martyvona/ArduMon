@@ -1,5 +1,7 @@
 #include <ArduMon.h>
 
+//#define BASELINE_MEM
+
 #ifndef WITH_INT64
 #define WITH_INT64 true
 #endif
@@ -36,7 +38,9 @@ typedef ArduMon<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ, WITH_INT64, WITH_DOUBLE, WITH_
 
 #ifdef ARDUINO
 void println(const __FlashStringHelper *str) { Serial.println(str); }
+#ifndef BASELINE_MEM
 AM am;
+#endif
 #else
 #define F(p) (p)
 #include <cstdio>
@@ -79,17 +83,18 @@ bool echo_float(AM *am) { return echo<float>(am); }
 bool echo_double(AM *am) { return echo<double>(am); }
 #endif
 
-void show_error() {
-  AM::Error e = am.get_err();
-  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am.clear_err(); }
+void show_error(AM* am) {
+  AM::Error e = am->get_err();
+  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am->clear_err(); }
 }
 
+#ifndef BASELINE_MEM
 void add_cmds() {
 
   am.set_txt_prompt(F("demo>"));
   am.set_txt_echo(true);
 
-#define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error();
+#define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error(&am);
 
   ADD_CMD(noop, "noop", "no operation");
   ADD_CMD(help, "help", "show commands");
@@ -122,15 +127,20 @@ void add_cmds() {
 
 #undef ADD_CMD
 }
+#endif
 
 void setup() {
 #ifdef ARDUINO
   Serial.begin(BAUD);
 #endif
+#ifndef BASELINE_MEM
   add_cmds();
+#endif
 }
 
 void loop() {
+#ifndef BASELINE_MEM
   am.update();
+#endif
 }
 

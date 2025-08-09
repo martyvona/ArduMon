@@ -180,7 +180,7 @@ int main(int argc, const char **argv) {
 
   std::cout << "adding demo commands\n";
   setup();
-  if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error();
+  if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error(&am);
   std::cout << "added "
             << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds()) << " commands\n";
 

@@ -71,6 +71,16 @@ template <typename T> bool echo_int(AM *am) {
   T v; return am->recv(&v, hex) && am->send(v, hex) && am->send_CRLF() && am->end_cmd();
 }
 
+template <typename T> bool echo_flt(AM *am) {
+  T v; if (!am->recv() || !am->recv(&v)) return false;
+  const uint8_t argc = am->argc();
+  bool scientific = false; int8_t precision = -1, width = -1;
+  if (argc > 2 && !am->recv(&scientific)) return false;
+  if (argc > 3 && !am->recv(&precision)) return false;
+  if (argc > 4 && !am->recv(&width)) return false;
+  return am->send(v, scientific, precision, width) && am->send_CRLF() && am->end_cmd();
+}
+
 bool echo_char(AM *am) { return echo<char>(am); }
 bool echo_str(AM *am) { return echo<const char*>(am); }
 bool echo_bool(AM *am) { return echo<bool>(am); }
@@ -85,9 +95,9 @@ bool echo_u64(AM *am) { return echo_int<uint64_t>(am); }
 bool echo_s64(AM *am) { return echo_int<int64_t>(am); }
 #endif
 #ifdef WITH_FLOAT
-bool echo_float(AM *am) { return echo<float>(am); }
+bool echo_float(AM *am) { return echo_flt<float>(am); }
 #ifdef WITH_DOUBLE
-bool echo_double(AM *am) { return echo<double>(am); }
+bool echo_double(AM *am) { return echo_flt<double>(am); }
 #endif
 #endif
 
@@ -130,9 +140,9 @@ void add_cmds() {
   ADD_CMD(echo_u64, "eu64h", "echo uint64 hex");
 #endif
 #ifdef WITH_FLOAT
-  ADD_CMD(echo_float, "ef", "echo float");
+  ADD_CMD(echo_float, "ef", "[scientific [precision [width]]] echo float");
 #ifdef WITH_DOUBLE
-  ADD_CMD(echo_float, "ed", "echo double");
+  ADD_CMD(echo_float, "ed", "[scientific [precision [width]]] echo double");
 #endif
 #endif
 

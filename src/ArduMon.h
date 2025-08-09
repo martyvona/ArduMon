@@ -388,6 +388,7 @@ public:
   //precision is the minimum number of fraction digits (i.e. after the decimal point), right padded with 0s
   //if precision is negative then automatically use the minimum number of fraction digits
   //width only applies to non-scientific; if positive then left-pad the result with spaces to the specified minimum
+  //width is limited to 10 for 4 byte float, 18 for 8 byte double
   bool send(const float v, bool scientific = false, int8_t precision = -1, int8_t width = -1) {
     return send_txt_sep() && send_raw(v, scientific, precision, width);
   }
@@ -988,7 +989,7 @@ private:
     }
     constexpr uint8_t sig_dig = nb == 4 ? 8 : 16;
     constexpr uint8_t exp_dig = nb == 4 ? 3 : 4;
-    const int8_t prec = precision < 0 ? sig_dig - 1 : precision;
+    const int8_t prec = precision < 0 || precision >= sig_dig ? sig_dig - 1 : precision;
     if (scientific) {
       constexpr uint8_t buf_sz =
         1 + 1 + 1 + (sig_dig-1) + 1 + 1 + exp_dig + 1; //sign d . d{sig_dig-1} E sign d{exp_dig} \0
@@ -1003,17 +1004,17 @@ private:
 #endif
       if (precision < 0) {
         uint8_t j = strchr(buf, 'E') - buf;
-        uint8_t k = trim_trailing(buf, j - 1);
+        uint8_t k = trim_backwards(buf, j - 1);
         while (buf[j]) buf[++k] = buf[j++];
         buf[++k] = 0;
       }
       return write_str(buf, false, false, -1);
     } else {
-      constexpr uint8_t buf_sz =
-        1 + 1 + 1 + 3 + sig_dig + 1; //sign d{7} . d{sig_dig - 7} \0 | sign 0 . 000 d{sig_dig} \0
+      constexpr uint8_t buf_sz = 1 + sig_dig + 1 + 1; //sign d{n} . d{sig_dig - n} \0
       char buf[buf_sz];
       for (uint8_t i = 0; i < buf_sz; i++) buf[i] = 0;
-      const int8_t wid = width < 0 ? -(buf_sz - 1) : width; //negative width = left align
+      const int8_t wid = width < 0 ? -(buf_sz - 1) : //negative width = left align
+        width >= buf_sz ? buf_sz - 1 : width;
 #ifdef ARDUINO
       dtostrf(v, wid, prec, buf);
 #else
@@ -1021,7 +1022,7 @@ private:
       snprintf(fmt, sizeof(fmt), "%%%d.%df", wid, prec);
       snprintf(buf, buf_sz, fmt, v);
 #endif
-      if (precision < 0) trim_trailing(buf, buf_sz - 1);
+      if (precision < 0) trim_backwards(buf, buf_sz - 1);
       return write_str(buf, false, false, -1);
     }
   }
@@ -1291,7 +1292,7 @@ private:
   }
 
   //trim trailing whitespace and zeros backwards from start index; returns next un-trimmed index
-  static uint8_t trim_trailing(char *s, const uint8_t start) {
+  static uint8_t trim_backwards(char *s, const uint8_t start) {
     uint8_t i = start;
     while (i >= 0 && (s[i - 1] != '.') && (s[i] == 0 || s[i] == '0' || s[i] == ' ')) s[i--] = '\0';
     return i;

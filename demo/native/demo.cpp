@@ -227,9 +227,6 @@ int main(int argc, const char **argv) {
 
   fcntl(data_socket, F_SETFL, O_NONBLOCK);
 
-  std::cout << "resetting command interpreter\n";
-  am.reset();
-  
   const uint32_t STATUS_MS = 2000;
   uint32_t ms_to_status = STATUS_MS;
   quit = false;

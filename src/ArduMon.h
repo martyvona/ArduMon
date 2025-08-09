@@ -265,6 +265,11 @@ public:
   //check if the first byte of a command has been received but not yet the full command
   bool is_receiving() { return receiving; }
 
+  //text: return number of command arguments, including the command name itself
+  //binary: return number of command packet payload bytes + 1 for the command code
+  //in either case the return is only valid while handling a command
+  uint8_t argc() { return arg_count; }
+
   //skip the next received token in text mode; skip the next received byte in binary mode
   //call this to skip over the received command token in text mode or the command code in binary mode
   bool recv() { return next_tok(1); }
@@ -455,6 +460,8 @@ private:
 
   bool space_pending = false; //a space should be sent before the next returned value in text mode
 
+  uint8_t arg_count = 0;
+
   //unfortunately zero length arrays are technically not allowed
   //though many compilers won't complain unless in pedantic mode
   //send_buf is not used in text mode, and receive-only applications are possible in binary mode
@@ -537,6 +544,7 @@ private:
     for (uint8_t i = 0; i < len; i++) sum += static_cast<int8_t>(recv_buf[i]);
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
+    arg_count = len - 2;
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
     return fail(Error::BAD_CMD);
   }
@@ -573,7 +581,7 @@ private:
       else if (!in_str && c == '\'') { in_chr = !in_chr;  c = 0; } //start/end of char
       else if (!in_str && !in_chr && isspace(c)) c = 0; //split on whitespace including terminating '\r' or '\n'
 
-      if (comment_start) { while (j < len) recv_buf[j++] = 0; break; } //ignore comment
+      if (comment_start) break;
       else recv_buf[j] = c;
     }
 
@@ -582,13 +590,19 @@ private:
     while (j < recv_buf_sz/2) recv_buf[j++] = 0;
     if (!save_cmd) while (j < recv_buf_sz) recv_buf[j++] = 0;
 
+    uint8_t * const end = recv_buf + (save_cmd ? recv_buf_sz/2 : recv_buf_sz);
+
     recv_ptr = recv_buf;
 
     while (*recv_ptr == 0) { //skip leading spaces, which are now 0s
-      if (++recv_ptr == recv_buf + recv_buf_sz || *recv_ptr == '\n') return end_cmd(true); //ignore empty command
+      if (++recv_ptr == end) return end_cmd(true); //ignore empty command
     }
 
     uint8_t *tmp = recv_ptr;
+    arg_count = 0;
+    while (++recv_ptr <= end) { if ((recv_ptr == end || !(*recv_ptr)) && *(recv_ptr - 1)) ++arg_count; }
+    recv_ptr = tmp;
+
     const char *cmd = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
 
@@ -1117,6 +1131,7 @@ private:
     if (!force && binary_mode == binary) return;
     binary_mode = binary;
     receiving = handling = space_pending = false;
+    arg_count = 0;
     err = Error::NONE;
     recv_ptr = recv_buf;
     send_read_ptr = 0;
@@ -1205,6 +1220,7 @@ private:
     if (!ok) {
       recv_ptr = recv_buf;
       receiving = handling = space_pending = false;
+      arg_count = 0;
       if (!binary_mode || !with_binary) {
         if (err != Error::NONE) write_str(err_msg(err));
         send_txt_prompt(true);
@@ -1238,6 +1254,7 @@ private:
   bool end_cmd_impl(const bool ok) {
     if (!ok) fail(Error::BAD_HANDLER, false); //but don't return yet
     handling = space_pending = false;
+    arg_count = 0;
     recv_ptr = recv_buf;
     if (!binary_mode || !with_binary) { send_txt_prompt(); return true; }
     else return send_packet_impl();

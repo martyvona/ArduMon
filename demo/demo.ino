@@ -56,6 +56,8 @@ bool noop(AM *am) { return am->end_cmd(); }
 
 bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
 
+bool argc(AM *am) { return am->send(am->argc()) && am->send_CRLF() && am->end_cmd(); }
+
 template <typename T> bool echo(AM *am) {
   //the first recv() skips over the command token itself
   T v; return am->recv() && am->recv(&v) && am->send(v) && am->send_CRLF() && am->end_cmd();
@@ -105,6 +107,7 @@ void add_cmds() {
   ADD_CMD(noop, "noop", "no operation");
   ADD_CMD(help, "help", "show commands");
   ADD_CMD(help, "?", "show commands");
+  ADD_CMD(argc, "argc", "show arg count");
   ADD_CMD(echo_char, "ec", "echo char");
   ADD_CMD(echo_str, "es", "echo str");
   ADD_CMD(echo_bool, "eb", "echo bool");

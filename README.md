@@ -10,11 +10,11 @@ Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
 
 [MIT License](./LICENSE.txt)
 
-Once upon a time, it was not uncommon during microcontroller firmware development to implement a *firmware monitor* as a a command line interface (CLI) exposed by the firmware over a serial port.  (Terminology: the word *monitor* has been used both for microcontroller firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting-to-ardumon) to it.)  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
+Once upon a time, it was not uncommon during microcontroller firmware development to implement a *firmware monitor* as a command line interface (CLI) exposed on a serial port.  (Terminology: the word *monitor* has been used both for microcontroller firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting-to-ardumon) to it.)  Though modern controllers now offer more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no](https://github.com/kcl93/VT100) [shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
 
 *ArduMon* is yet another one of these, but with a few features that I didn't see in most of the existing ones:
 
-* The same command handler code can operate in either text or binary mode.  Text mode would be used for a traditional CLI-style monitor user interface.  Binary mode reuses the same command implementations as text mode, but turns them into an efficient packet-based application programming interface (API).
+* The same command handler code can operate in either text or binary mode.  Text mode would be used for a traditional CLI-style monitor user interface.  Binary mode reuses the same command implementations, but turns them into an efficient packet-based application programming interface (API).
 * Supported command argument and response data types include: character, string, boolean, 8/16/32/64 bit signed and unsigned integers, and 32 and 64 bit floating point numbers.  Each command can accept zero or more parameters of these types and also respond with zero or more of them.  Text mode responses can also respond with free-form text, or with VT100 control sequences, e.g. to implement a dynamically updating text display.  In text mode, integers can be read and written in hexadecimal or decimal, and floating point numbers can be read and written in decimal or scientific format.
 * ArduMon implements a basic command line user experience in text mode: echo is supported, an optional text prompt is displayed, the user may hit backspace to erase the most recent character, and hitting the up arrow re-enters the previous command if there was space to save it.
 
@@ -40,7 +40,7 @@ ArduMon also has an optional receive timeout (`set_recv_timeout_ms()`) which wil
 
 The ArduMon `update()` API should be "pumped" from the Arduino `loop()` method.  Command handlers are run directly from `update()`, so if they run long, they will block `loop()`.  A handler may return before handling is complete, as long as `end_cmd()` is eventually called.
 
-In text mode a single handler can return an arbitrary amount of data.  In binary mode a single handler can send an arbitrary number of response packets (see `send_packet()`).  (This would require breaking the handler up so that `loop()` is not blocked.)  It is also acceptable to send data when a command handler is not actually running, as long as all command parameters have been read before calling `end_cmd()`.  For example, a command could trigger sending periodic status strings in text mode, or status packets in binary mode, indefinitely until another command is received to end the stream.  ArduMon can even be used for send-only applications, e.g. which just autonomously send a never ending stream of packets in binary mode.
+In text mode a single handler can return an arbitrary amount of data.  In binary mode a single handler can send an arbitrary number of response packets (see `send_packet()`); this would require breaking the handler up so that `loop()` is not blocked.  It is also acceptable to send data when a command handler is not actually running, as long as all command parameters have been read before calling `end_cmd()`.  For example, a command could trigger sending periodic status strings in text mode, or status packets in binary mode, indefinitely until another command is received to end the stream.  ArduMon can even be used for send-only applications, e.g. which just autonomously send a never ending stream of packets in binary mode.
 
 Handlers can also implement their own sub-protocols, reading and optionally writing directly to the serial port (typically via the Arduino serial send and receive buffers).  Command receive is disabled while a handler is running, so during that time a handler can consume serial data that's not intended for the command processor.  For example, an interactive text mode handler that is updating a live display on the terminal could exit when a keypress is received from the user.
 
@@ -281,7 +281,7 @@ minicom -D /dev/cu.usb* -b 115200
 
 Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `COMn` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
-To exit minicom hit ctrl-A (option-Z on OS X), then Q.  If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
+To exit minicom hit ctrl-A (option-Z on OS X), then Q.  On OS X, is If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
 If nothing happens when you type, ensure hardware flow control is OFF: ctrl-A (option-Z on OS X), then O, then serial port setup, then F to toggle hardware flow control.  You can then "save setup as dfl" to persist this setting.
 
@@ -342,7 +342,9 @@ Replace `/dev/cu.usb*` with `/dev/ttyUSB*` on Linux, `/dev/ttySn` on WSL, or `CO
 
 To exit the arduino-cli monitor hit ctrl-C.  You may need to then enter the `reset` command to reinitialize your terminal.
 
-### Connecting with the Arduino IDE
+### Connecting with the Arduino IDE Serial Monitor
 
 Select your bord in the "Select Board" dropdown.  Then select Tools -> Serial Monitor.  Make sure the baud rate is set to 115200.
+
+The serial monitor tool within the Arduino IDE does not support ANSI/VT100 terminal emulation, so some features of ArduMon, such as hitting the up arrow to re-enter the previous command, will not be usable.
 

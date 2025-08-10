@@ -48,6 +48,7 @@ public:
   virtual ~ArduMonStream() {}
   virtual int16_t available() = 0;
   virtual int16_t read() = 0; //-1 if no data available
+  virtual int16_t peek() = 0; //-1 if no data available
   virtual int16_t availableForWrite() = 0;
   virtual uint16_t write(uint8_t byte) = 0; //returns 1
 };
@@ -129,8 +130,6 @@ public:
 #ifdef ARDUINO
   ArduMon(const bool binary = !with_text) : ArduMon(&Serial, binary) { }
 #endif
-
-  Stream *get_stream() { return stream; }
 
   Error get_err() { return err; }
 
@@ -415,18 +414,58 @@ public:
     return write_float(v, scientific, precision, width);
   }
 
+  //get the underlying stream for direct use by command handlers
+  Stream *get_stream() { return stream; }
+
+  //there are no actual ASCII codes for these keys
+  //instead we re-purpose the ASCII codes for the non-printing characters device control 1-4 and bell
+  static const char UP_KEY = 17, DOWN_KEY = 18, RIGHT_KEY = 19, LEFT_KEY = 20, UNKNOWN_KEY = 7;
+
+  //these are actually ASCII "start of heading" and "enquiry"
+  //but apparently are what we receive for HOME and END keypresses
+  static const char HOME_KEY = 1, END_KEY = 5;
+
+  //get keypress, non-blocking; can be useful in interactive command handlers
+  //skips the ArduMon receive buffer and reads directly from the Arduino serial receive buffer
+  //returns 0 the receive buffer is empty
+  //otherwise returns the first available character from the receive buffer
+  //if that character was 27 (ESC) and there are at least two more characters available with the first being '['
+  //then attempt to intrpret the triplet as a VT100 escape sequence, e.g. UP_KEY, DOWN_KEY, RIGHT_KEY, LEFT_KEY
+  char get_key() {
+    if (!stream->available()) return 0;
+    char c = static_cast<char>(stream->read());
+    if (c == 27 && stream->available() > 1 && stream->peek() == '[') {
+      stream->read(); //ignore '['
+      c = static_cast<char>(stream->read());
+      switch (c) {
+        case 'A': return UP_KEY;
+        case 'B': return DOWN_KEY;
+        case 'C': return RIGHT_KEY;
+        case 'D': return LEFT_KEY;
+        default: return UNKNOWN_KEY;
+      }
+    }
+    return c;
+  }
+
+  //below are conveniences for a partial set of ANSI/VT100 control codes; for more details see
+  //https://vt100.net
+  //https://github.com/martyvona/ArduMon/blob/main/vtansi.htm
+  //https://github.com/martyvona/ArduMon/blob/main/VT100_Escape_Codes.html
+
 #ifndef __AVR__
 #define PROGMEM
 #define FSH char
 #endif
-  static constexpr const FSH * VT100_INIT PROGMEM = (const FSH *)"\x1B\x63";
-  static constexpr const FSH * VT100_CLEAR PROGMEM = (const FSH *)"\x1B[2J";
+  static constexpr const FSH * VT100_INIT PROGMEM = (const FSH *)"\x1B""c"; //reset to initial state
+  static constexpr const FSH * VT100_CLEAR_DOWN PROGMEM = (const FSH *)"\x1B[0J"; //clear screen from cursor down
+  static constexpr const FSH * VT100_CLEAR_SCREEN PROGMEM = (const FSH *)"\x1B[2J"; //clear entire screen
+  static constexpr const FSH * VT100_CLEAR_RIGHT PROGMEM = (const FSH *)"\x1B[0K"; //clear line from cursor right
   static constexpr const FSH * VT100_CLEAR_LINE PROGMEM = (const FSH *)"\r\x1B[2K"; //and move to start of line
+  //the following cursor visible/hidden are actually VT510 codes, but are supported by modern terminal emulators
+  //https://vt100.net/docs/vt510-rm/DECTCEM.html
   static constexpr const FSH * VT100_CURSOR_VISIBLE PROGMEM = (const FSH *)"\x1B[?25h";
   static constexpr const FSH * VT100_CURSOR_HIDDEN PROGMEM = (const FSH *)"\x1B[?25l";
-  static constexpr const FSH * VT100_CURSOR_HOME PROGMEM = (const FSH *)"\x1B[H"; //move to upper left corner
-  static constexpr const FSH * VT100_CURSOR_SAVE PROGMEM = (const FSH *)"\x1B[7"; //save position and attributes
-  static constexpr const FSH * VT100_CURSOR_RESTORE PROGMEM = (const FSH *)"\x1B[8"; //restore position and attributes
 #ifndef __AVR__ 
 #undef FSH
 #undef PROGMEM
@@ -448,6 +487,23 @@ public:
     if (binary_mode || !with_text) return true;
     return write_char('\x1B') && write_char('[') && send_raw(row) && write_char(';') &&
       send_raw(col) && write_char('H');
+  }
+
+  static const char VT100_ATTR_RESET = '0', VT100_ATTR_BRIGHT = '1', VT100_ATTR_UNDERSCORE = '4';
+  static const char VT100_ATTR_BLINK = '5', VT100_ATTR_REVERSE = '7';
+
+  bool vt100_set_attr(const char attr) {
+    if (binary_mode || !with_text) return true;
+    return write_char('\x1B') && write_char('[') && write_char(attr) && write_char('m');
+  }
+
+  static const char VT100_FOREGROUND = '3', VT100_BACKGROUND = '4';
+  static const char VT100_BLACK = '0', VT100_RED = '1', VT100_GREEN = '2', VT100_YELLOW = '3', VT100_BLUE = '4';
+  static const char VT100_MAGENTA = '5', VT100_CYAN = '6', VT100_WHITE = '7';
+
+  bool vt100_set_color(const char fg_bg, const char color) {
+    if (binary_mode || !with_text) return true;
+    return write_char('\x1B') && write_char('[') && write_char(fg_bg) && write_char(color) && write_char('m');
   }
 
 private:
@@ -1216,12 +1272,12 @@ private:
           break;
         } else if (*recv_ptr == '\b') { //text mode backspace
           if (recv_ptr > recv_buf) {
-            if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_char(' '); vt100_move_rel(1, VT100_LEFT); }
+            if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_str(VT100_CLEAR_RIGHT); }
             --recv_ptr;
           }
         } else { //text mode command character
 
-          //catch and ignore VT100 cursor movement sequences up [A, down [B, right [C, left [D
+          //catch and ignore VT100 movement codes: up <ESC>[A, down <ESC>[B, right <ESC>[C, left <ESC>[D
           //these are sent by minicom when the user hits the arrow keys on the keyboard
           //we unfortunately don't support command line editing with these
           //except for possibly 1 line of command history, if there was room in the upper half of recv_buf

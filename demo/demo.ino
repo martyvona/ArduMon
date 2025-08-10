@@ -52,6 +52,11 @@ void println(const char *str) { printf("%s\n", str); }
 AM am(&STREAM);
 #endif
 
+void show_error(AM* am) {
+  AM::Error e = am->get_err();
+  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am->clear_err(); }
+}
+
 bool noop(AM *am) { return am->end_cmd(); }
 
 bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
@@ -83,15 +88,18 @@ public:
     am->send_raw(F(", hit any key to cancel..."));
     am->send_CRLF();
     am->send_raw(AM::VT100_CURSOR_HIDDEN);
+    //am->vt100_set_attr(AM::VT100_ATTR_REVERSE);
+    //am->vt100_set_attr(AM::VT100_ATTR_BLINK);
+    //am->vt100_set_attr(AM::VT100_ATTR_BRIGHT);
+    //am->vt100_set_attr(AM::VT100_ATTR_UNDERSCORE);
+    am->vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
   }
 
   bool tick() {
     if (!running) return false;
     uint8_t h, m, s; uint16_t ms = 0;
     const unsigned long elapsed_ms = (millis() - start_ms) * accel;
-    const bool quit = am->get_stream()->available() > 0;
-    while (am->get_stream()->available()) am->get_stream()->read();
-    if (elapsed_ms >= total_ms || quit) {
+    if (elapsed_ms >= total_ms || am->get_key() != 0) {
       h = m = s = 0; ms = 0;
       running = false;
     } else {
@@ -112,6 +120,7 @@ public:
     if (!running) {
       am->send_CRLF();
       am->send_raw(AM::VT100_CURSOR_VISIBLE);
+      am->vt100_set_attr(AM::VT100_ATTR_RESET);
       am->end_cmd();
     }
     return running;
@@ -190,11 +199,6 @@ bool echo_float(AM *am) { return echo_flt<float>(am); }
 bool echo_double(AM *am) { return echo_flt<double>(am); }
 #endif
 #endif
-
-void show_error(AM* am) {
-  AM::Error e = am->get_err();
-  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am->clear_err(); }
-}
 
 #ifndef BASELINE_MEM
 void add_cmds() {

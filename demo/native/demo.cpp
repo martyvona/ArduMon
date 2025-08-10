@@ -65,6 +65,11 @@ public:
     return ret;
   }
 
+  uint8_t peek() {
+    if (read_idx == capacity) throw std::runtime_error(name + " underflow");
+    return buf[read_idx];
+  }
+
   size_t size() {
     if (read_idx == capacity) return 0;
     if (read_idx == write_idx) return capacity;
@@ -92,6 +97,7 @@ public :
 
   int16_t available() { return in.size(); }
   int16_t read() { return in.get(); }
+  int16_t peek() { return in.size() > 0 ? static_cast<int16_t>(in.peek()) : -1; }
 
   int16_t availableForWrite() { return out.free(); }
   uint16_t write(uint8_t val) { out.put(val); return 1; }

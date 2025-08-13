@@ -1,5 +1,25 @@
 #include <ArduMon.h>
+
+#ifndef __AVR__
 #include <memory>
+using std::unique_ptr;
+#else
+template<typename T> class unique_ptr {
+private: T* ptr;
+public:
+  unique_ptr() : ptr(nullptr) {}
+  explicit unique_ptr(T* p) : ptr(p) {}
+  ~unique_ptr() { delete ptr; }
+  //this is a partial implementation: delete copy and move operations
+  unique_ptr(const unique_ptr&) = delete;
+  unique_ptr& operator=(const unique_ptr&) = delete;
+  unique_ptr(unique_ptr&&) = delete;
+  unique_ptr& operator=(unique_ptr&&) = delete;
+  void reset(T* p = nullptr) { delete ptr; ptr = p; }
+  T* operator->() const { return ptr; }
+  explicit operator bool() const { return ptr != nullptr; }
+};
+#endif
 
 //#define BASELINE_MEM
 
@@ -152,7 +172,7 @@ private:
 #endif
 };
 
-std::unique_ptr<Timer> timer;
+unique_ptr<Timer> timer;
 
 bool start_timer(AM *am) {
   if (!am->recv()) return false; //skip over command token

@@ -63,11 +63,6 @@ bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
 
 bool argc(AM *am) { return am->send(am->argc()) && am->send_CRLF() && am->end_cmd(); }
 
-template <typename T> bool echo(AM *am) {
-  //the first recv() skips over the command token itself
-  T v; return am->recv() && am->recv(&v) && am->send(v) && am->send_CRLF() && am->end_cmd();
-}
-
 class Timer {
 public:
 
@@ -156,6 +151,11 @@ bool start_timer(AM *am) {
   return true;
 }
 
+template <typename T> bool echo(AM *am) {
+  //the first recv() skips over the command token itself
+  T v; return am->recv() && am->recv(&v) && am->send(v) && am->send_CRLF() && am->end_cmd();
+}
+
 template <typename T> bool echo_int(AM *am) {
   T v; if (!am->recv() || !am->recv(&v)) return false;
   const uint8_t argc = am->argc();
@@ -200,6 +200,67 @@ bool echo_double(AM *am) { return echo_flt<double>(am); }
 #endif
 #endif
 
+bool echo_multiple(AM *am) {
+  if (!am->recv()) return false; // skip command token
+  
+  const char* format;
+  if (!am->recv(&format)) return false;
+  
+  const size_t len = strlen(format);
+  for (size_t i = 0; i + 2 < len; i += 3) {
+    const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
+    
+    if (strcmp(type, "chr") == 0) {
+      char v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "str") == 0) {
+      const char* v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "bll") == 0) {
+      bool v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "u08") == 0) {
+      uint8_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "s08") == 0) {
+      int8_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "u16") == 0) {
+      uint16_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "s16") == 0) {
+      int16_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "u32") == 0) {
+      uint32_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "s32") == 0) {
+      int32_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+#ifdef WITH_INT64
+    } else if (strcmp(type, "u64") == 0) {
+      uint64_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+    } else if (strcmp(type, "s64") == 0) {
+      int64_t v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+#endif
+#ifdef WITH_FLOAT
+    } else if (strcmp(type, "f32") == 0) {
+      float v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+#ifdef WITH_DOUBLE
+    } else if (strcmp(type, "f64") == 0) {
+      double v;
+      if (!am->recv(&v) || !am->send(v)) return false;
+#endif
+#endif
+    }
+  }
+  
+  return am->send_CRLF() && am->end_cmd();
+}
+
 #ifndef BASELINE_MEM
 void add_cmds() {
 
@@ -232,6 +293,7 @@ void add_cmds() {
   ADD_CMD(echo_float, "ed", "[scientific [precision [width]]] | echo double");
 #endif
 #endif
+  ADD_CMD(echo_multiple, "em", "format_string args... | echo multiple args based on format");
 
 #undef ADD_CMD
 }

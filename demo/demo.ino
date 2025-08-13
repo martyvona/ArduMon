@@ -72,50 +72,62 @@ public:
     accel(_accel),
     total_ms((h * 3600 + m * 60 + s) * 1000ul),
     start_ms(millis()) {
-    am->send_raw(F("counting down from "));
-    am->send_raw(h);
-    am->send_raw(':');
-    am->send_raw(m, 2|AM::FMT_PAD_ZERO);
-    am->send_raw(':');
-    am->send_raw(s, 2|AM::FMT_PAD_ZERO);
-    am->send_raw(F(", accel="));
-    am->send_raw(accel);
-    am->send_raw(F(", hit any key to cancel..."));
-    am->send_CRLF();
-    am->send_raw(AM::VT100_CURSOR_HIDDEN);
-    //am->vt100_set_attr(AM::VT100_ATTR_REVERSE);
-    //am->vt100_set_attr(AM::VT100_ATTR_BLINK);
-    //am->vt100_set_attr(AM::VT100_ATTR_BRIGHT);
-    //am->vt100_set_attr(AM::VT100_ATTR_UNDERSCORE);
-    am->vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
+    if (am->is_txt_mode()) {
+      am->send_raw(F("counting down from "));
+      am->send_raw(h);
+      am->send_raw(':');
+      am->send_raw(m, 2|AM::FMT_PAD_ZERO);
+      am->send_raw(':');
+      am->send_raw(s, 2|AM::FMT_PAD_ZERO);
+      am->send_raw(F(", accel="));
+      am->send_raw(accel);
+      am->send_raw(F(", hit any key to cancel..."));
+      am->send_CRLF();
+      am->send_raw(AM::VT100_CURSOR_HIDDEN);
+      //am->vt100_set_attr(AM::VT100_ATTR_REVERSE);
+      //am->vt100_set_attr(AM::VT100_ATTR_BLINK);
+      //am->vt100_set_attr(AM::VT100_ATTR_BRIGHT);
+      //am->vt100_set_attr(AM::VT100_ATTR_UNDERSCORE);
+      am->vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
+    }
   }
 
   bool tick() {
     if (!running) return false;
     uint8_t h, m, s; uint16_t ms = 0;
-    const unsigned long elapsed_ms = (millis() - start_ms) * accel;
+    const unsigned long elapsed_ms = (millis() - start_ms) * accel, remaining_ms = total_ms - elapsed_ms;
     if (elapsed_ms >= total_ms || am->get_key() != 0) {
       h = m = s = 0; ms = 0;
       running = false;
     } else {
-      const unsigned long remaining_ms = total_ms - elapsed_ms;
       h = remaining_ms / (3600 * 1000ul);
       m = (remaining_ms - h * 3600 * 1000ul) / (60 * 1000ul);
       s = (remaining_ms - (h * 3600 + m * 60) * 1000ul) / 1000ul;
       ms = remaining_ms - (h * 3600 + m * 60 + s) * 1000ul;
     }
-    am->send_raw(AM::VT100_CLEAR_LINE);
-    am->send_raw(h, 3|AM::FMT_PAD_ZERO);
-    am->send_raw(':');
-    am->send_raw(m, 2|AM::FMT_PAD_ZERO);
-    am->send_raw(':');
-    am->send_raw(s, 2|AM::FMT_PAD_ZERO);
-    am->send_raw('.');
-    am->send_raw(ms, 3|AM::FMT_PAD_ZERO);
+    if (am->is_binary_mode()) {
+#if WITH_INT64
+      am->send(static_cast<uint64_t>(elapsed_ms)); am->send(static_cast<uint32_t>(remaining_ms));
+#else
+      am->send(static_cast<uint32_t>(elapsed_ms)); am->send(static_cast<uint32_t>(remaining_ms));
+#endif
+    }
+    else {
+      am->send_raw(AM::VT100_CLEAR_LINE);
+      am->send_raw(h, 3|AM::FMT_PAD_ZERO);
+      am->send_raw(':');
+      am->send_raw(m, 2|AM::FMT_PAD_ZERO);
+      am->send_raw(':');
+      am->send_raw(s, 2|AM::FMT_PAD_ZERO);
+      am->send_raw('.');
+      am->send_raw(ms, 3|AM::FMT_PAD_ZERO);
+    }
     if (!running) {
-      am->send_CRLF();
-      am->send_raw(AM::VT100_CURSOR_VISIBLE);
-      am->vt100_set_attr(AM::VT100_ATTR_RESET);
+      if (am->is_txt_mode()) {
+        am->send_CRLF();
+        am->send_raw(AM::VT100_CURSOR_VISIBLE);
+        am->vt100_set_attr(AM::VT100_ATTR_RESET);
+      }
       am->end_cmd();
     }
     return running;

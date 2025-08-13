@@ -1,4 +1,5 @@
 #include <ArduMon.h>
+#include <memory>
 
 //#define BASELINE_MEM
 
@@ -151,7 +152,7 @@ private:
 #endif
 };
 
-Timer *timer = nullptr;
+std::unique_ptr<Timer> timer;
 
 bool start_timer(AM *am) {
   if (!am->recv()) return false; //skip over command token
@@ -159,7 +160,7 @@ bool start_timer(AM *am) {
   if (!am->recv(&h) || !am->recv(&m) || !am->recv(&s)) return false;
   float accel = 1;
   if (am->argc() > 4 && !am->recv(&accel)) return false;
-  timer = new Timer(am, h, m, s, accel);
+  timer.reset(new Timer(am, h, m, s, accel));
   return true;
 }
 
@@ -324,6 +325,6 @@ void loop() {
 #ifndef BASELINE_MEM
   am.update();
 #endif
-  if (timer && !timer->tick()) { delete timer; timer = nullptr; }
+  if (timer && !timer->tick()) { timer.reset(); }
 }
 

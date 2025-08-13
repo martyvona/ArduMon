@@ -170,6 +170,26 @@ public:
   //sugar for get_recv_buf_size() - get_recv_buf_used()
   uint16_t get_recv_buf_free() { return recv_buf_sz - recv_buf_used(); }
 
+  //set a universal command handler that will override any other handlers added with add_cmd()
+  //this can be useful e.g. in binary mode to handle received packets where byte two is not necessarily a command code
+  //set handler to 0 to remove any existing universal handler (and thus re-enable handlers added with add_cmd())
+  //returns the previous universal handler, if any
+  handler_t set_universal_handler(const handler_t handler) {
+    const handler_t ret = universal_handler;
+    universal_handler = handler;
+    return ret;
+  }
+
+  //set a fallback command handler that will handle received commands
+  //that did not have a command name (command code in binary mode) matching any handler added with add_cmd()
+  //set handler to 0 to remove any existing fallback handler
+  //returns the previous fallback handler, if any
+  handler_t set_fallback_handler(const handler_t handler) {
+    const handler_t ret = fallback_handler;
+    fallback_handler = handler;
+    return ret;
+  }
+
   //add a command; handler and name are required; code is required if binary mode will be used; description is optional
   bool add_cmd(const handler_t handler, const char *name, const uint8_t code = 0, const char *description = 0) {
     return add_cmd_impl(handler, name, code, description, false);
@@ -251,7 +271,7 @@ public:
   bool end_cmd(const bool ok = true) { return end_cmd_impl(ok); }
 
   //noop in text mode
-  //in binary mode if the command handler has not written any bytes then noop
+  //in binary mode if the send buffer is empty then noop
   //otherwise compute packet checksum and length, disable writing send_buf, enable reading it, and start sending it
   //blocks for up to send_wait_ms
   bool send_packet() { return send_packet_impl(); }
@@ -561,6 +581,8 @@ private:
   Cmd cmds[max_num_cmds > 0 ? max_num_cmds : 1];
   uint8_t n_cmds = 0;
 
+  handler_t universal_handler = 0, fallback_handler = 0;
+
   bool fail(Error e, bool overwrite = false) { if (overwrite || err == Error::NONE) err = e; return false; }
 
   bool add_cmd_impl(const handler_t func, const char *name, const uint8_t code, const char *desc, const bool progmem) {
@@ -611,7 +633,9 @@ private:
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
     arg_count = len - 2;
+    if (universal_handler) return (universal_handler)(this);
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
+    if (fallback_handler) return (fallback_handler)(this);
     return fail(Error::BAD_CMD);
   }
 
@@ -672,7 +696,11 @@ private:
     const char *cmd = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
 
+    if (universal_handler) return (universal_handler)(this);
+
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
+
+    if (fallback_handler) return (fallback_handler)(this);
 
     return fail(Error::BAD_CMD);
   }
@@ -1250,7 +1278,7 @@ private:
             receiving = false; handling = true;
             ok = handle_bin_command();
             if (!ok) fail(Error::BAD_HANDLER, false);
-            break;
+            break; //handle at most one command per call
           } else ++recv_ptr;
 
         } else if (*recv_ptr == '\r' || *recv_ptr == '\n') { //text mode end of command
@@ -1269,7 +1297,7 @@ private:
           receiving = false; handling = true;
           ok = handle_txt_command();
           if (!ok) fail(Error::BAD_HANDLER, false);
-          break;
+          break; //handle at most one command per call
         } else if (*recv_ptr == '\b') { //text mode backspace
           if (recv_ptr > recv_buf) {
             if (txt_echo) { vt100_move_rel(1, VT100_LEFT); write_str(VT100_CLEAR_RIGHT); }

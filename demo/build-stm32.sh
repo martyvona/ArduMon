@@ -27,4 +27,10 @@ if [[ $2 == NUCLEO_* ]]; then USB=none; fi
 # arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_32
 # arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
 
-arduino-cli compile --fqbn $1 --board-options "pnum=$2,usb=$USB" --libraries ../ -e .
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+fqbn=$1
+
+echo "building for $fqbn $2"
+
+arduino-cli compile --fqbn $fqbn --board-options "pnum=$2,usb=$USB" --libraries $script_dir/../ -e .

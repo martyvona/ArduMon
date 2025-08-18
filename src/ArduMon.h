@@ -143,6 +143,7 @@ public:
   typedef bool (*handler_t)(ArduMon*);
 
   //get the number of registered commands
+  //this will also be the binary code of the next command that will be added with add_cmd() without an explicit code
   uint8_t get_num_cmds() { return n_cmds; }
 
   //get the maximum number of commands that could be registered
@@ -190,8 +191,8 @@ public:
     return ret;
   }
 
-  //add a command; handler and name are required; code is required if binary mode will be used; description is optional
-  bool add_cmd(const handler_t handler, const char *name, const uint8_t code = 0, const char *description = 0) {
+  //add a command
+  bool add_cmd(const handler_t handler, const char *name, const uint8_t code, const char *description = 0) {
     return add_cmd_impl(handler, name, code, description, false);
   }
 
@@ -207,7 +208,7 @@ public:
 
 #ifdef ARDUINO
   //add a command with strings from program memory
-  bool add_cmd(const handler_t handler, const FSH *name, const uint8_t code = 0, const FSH *description = 0) {
+  bool add_cmd(const handler_t handler, const FSH *name, const uint8_t code, const FSH *description = 0) {
     return add_cmd_impl(handler, CCS(name), code, CCS(description), true);
   }
 
@@ -268,7 +269,7 @@ public:
   //reset the command interpreter and the receive buffer
   //in text mode then send the prompt, if any
   //in binary mode send_packet()
-  bool end_cmd(const bool ok = true) { return end_cmd_impl(ok); }
+  bool end_cmd() { return end_cmd_impl(); }
 
   //noop in text mode
   //in binary mode if the send buffer is empty then noop
@@ -276,7 +277,7 @@ public:
   //blocks for up to send_wait_ms
   bool send_packet() { return send_packet_impl(); }
 
-  //check if a response packet is still being sent in binary mode
+  //check if a packet is still being sent in binary mode
   //do not write additional data to the send buffer while this is the case
   bool is_sending_packet() { return binary_mode && send_write_ptr == 0; }
 
@@ -526,6 +527,22 @@ public:
     return write_char('\x1B') && write_char('[') && write_char(fg_bg) && write_char(color) && write_char('m');
   }
 
+  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
+  static int strcmp_PP(const char* a, const char* b) {
+    if (a == b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    while (true) {
+      const char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
+      if (ca != cb) return ca - cb;
+      if (!ca) return 0;
+    }
+  }
+
+#ifdef ARDUINO
+  static int strcmp_PP(const FSH* a, const FSH* b) { return strcmp_PP(CCS(a), CCS(b)); }
+#endif
+
 private:
 
   Stream *stream; //underlying serial stream
@@ -648,7 +665,7 @@ private:
 
     const uint16_t len = recv_ptr - recv_buf + 1;
 
-    if (len <= 1) return end_cmd(true); //ignore empty command, e.g. if received just '\r' or '\n'
+    if (len <= 1) return end_cmd(); //ignore empty command, e.g. if received just '\r' or '\n'
 
     const bool save_cmd = (len + 1) <= recv_buf_sz/2; //save cmd to upper half of recv_buf if possible for history
     if (save_cmd) recv_buf[recv_buf_sz/2] = '\n'; //saved command is signaled by recv_buf[recv_buf_sz/2] = '\n'
@@ -685,7 +702,7 @@ private:
     recv_ptr = recv_buf;
 
     while (*recv_ptr == 0) { //skip leading spaces, which are now 0s
-      if (++recv_ptr == end) return end_cmd(true); //ignore empty command
+      if (++recv_ptr == end) return end_cmd(); //ignore empty command
     }
 
     uint8_t *tmp = recv_ptr;
@@ -1366,8 +1383,8 @@ private:
   void pump_send_buf() { pump_send_buf(send_wait_ms); }
 
   //see end_cmd()
-  bool end_cmd_impl(const bool ok) {
-    if (!ok) fail(Error::BAD_HANDLER, false); //but don't return yet
+  bool end_cmd_impl() {
+    if (!binary_mode) send_CRLF(); //ignore any error
     handling = space_pending = false;
     arg_count = 0;
     recv_ptr = recv_buf;
@@ -1483,18 +1500,6 @@ private:
   static uint8_t * BP(void *p) { return reinterpret_cast<uint8_t*>(p); }
 
   static const uint8_t * BP(const void *p) { return reinterpret_cast<const uint8_t*>(p); }
-
-  //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
-  static int strcmp_PP(const char* a, const char* b) {
-    if (a == b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    while (true) {
-      const char ca = pgm_read_byte(a++), cb = pgm_read_byte(b++);
-      if (ca != cb) return ca - cb;
-      if (!ca) return 0;
-    }
-  }
 
 #ifndef ARDUINO
 

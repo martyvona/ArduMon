@@ -113,8 +113,8 @@ public :
 
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
 
-#define STREAM demo_stream
-#include "../demo.ino"
+#define AM_STREAM demo_stream
+#include "../demo.h"
 //demo.ino defines the global ArduMon isntance am
 
 int listen_socket;

@@ -7,12 +7,10 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
-arduino-cli compile --fqbn $1 --libraries ../ -e .
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-# https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
+fqbn=$1
 
-# this should also work for Arduino Nano ESP32:
-# arduino-cli compile --fqbn esp32:esp32:nano_nora --libraries ../ -e .
-# but appears broken in esp32 core 3.2.0, probably fixed in 3.2.1
-# but as of 7/6/25 arduino-cli still thinks 3.2.0 is latest (3.2.1 was released 7/3/25)
-# https://github.com/espressif/arduino-esp32/pull/11315
+echo "building for $fqbn"
+
+arduino-cli compile --fqbn $fqbn --libraries $script_dir/../ -e .

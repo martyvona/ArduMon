@@ -10,5 +10,11 @@ fi
 dbg=
 if [[ $# -gt 1 && $2 == "-d" ]]; then dbg=--optimize-for-debug; fi
 
-arduino-cli compile --fqbn arduino:avr:$1 --libraries ../ -e $dbg .
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+fqbn=arduino:avr:$1 
+
+echo "building for $fqbn"
+
+arduino-cli compile --fqbn $fqbn --libraries $script_dir/../ -e $dbg .
 

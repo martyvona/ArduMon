@@ -1,7 +1,6 @@
 #include <ArduMon.h>
 
 #include "dbg_print.h"
-#include "unique_ptr.h"
 #include "am_timer.h"
 
 //#define BASELINE_MEM to check memory usage of boilerplate
@@ -220,11 +219,11 @@ bool echo_multiple(AM *am) {
 #ifdef BINARY_CLIENT
 
 struct CmdRec {
-  const uint8_t code; const __FlashStringHelper * const name; std::unique_ptr<CmdRec> prev;
+  const uint8_t code; const __FlashStringHelper * const name; CmdRec *prev;
   CmdRec(uint8_t c, const __FlashStringHelper *n) : code(c), name(n) { }
 };
-std::unique_ptr<CmdRec> last_server_cmd;
-uint8_t server_cmd_code(const __FlashStringHelper *name, const std::unique_ptr<CmdRec> &rec = last_server_cmd) {
+CmdRec *last_server_cmd;
+uint8_t server_cmd_code(const __FlashStringHelper *name, const CmdRec *rec = last_server_cmd) {
   if (!rec) { print(F("ERROR, unknown command: ")); println(name); return 0; }
   if (AM::strcmp_PP(rec->name, name) == 0) return rec->code;
   return server_cmd_code(name, rec->prev);
@@ -255,10 +254,10 @@ void add_cmds() {
 #ifndef BINARY_CLIENT
 #define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error(&am);
 #else
-#define ADD_CMD(func, name, desc) { \
-  std::unique_ptr<CmdRec> new_cmd(new CmdRec(am.get_num_cmds(), F(name))); \
-  if (last_server_cmd) new_cmd->prev = std::move(last_server_cmd);         \
-  last_server_cmd = std::move(new_cmd);                                    \
+#define ADD_CMD(func, name, desc) {                         \
+  CmdRec *new_cmd = new CmdRec(am.get_num_cmds(), F(name)); \
+  if (last_server_cmd) new_cmd->prev = last_server_cmd;     \
+  last_server_cmd = new_cmd;                                \
 }
 #endif
 

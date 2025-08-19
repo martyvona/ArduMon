@@ -61,6 +61,8 @@
 #define SEND_BUF_SZ 128
 #endif
 
+typedef ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
+
 #ifdef ARDUINO
 #if BINARY //for binary demo connect BIN_TX_PIN of client Arduino to BIN_RX_PIN of server Arduino and vice-versa
 #ifdef ESP32
@@ -74,8 +76,6 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 #endif //BINARY
 #endif //ARDUINO
 //AM_STREAM is defined in native/demo.cpp for non-arduino build
-
-typedef ArduMon<MAX_CMDS,RECV_BUF_SZ,SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
 
 #ifndef BASELINE_MEM
 AM am(&AM_STREAM, BINARY);
@@ -229,19 +229,31 @@ uint8_t server_cmd_code(const __FlashStringHelper *name, const CmdRec *rec = las
   return server_cmd_code(name, rec->prev);
 }
 
+struct BCStage {
+  AM::handler_t send, recv; BCStage *next; bool started = false;
+  BCStage(AM::handler_t s, AM::handler_t r, BCStage *prev = 0) : send(s), recv(r) { if (prev) prev->next = this; }
+  void run() { started = true; am.set_universal_handler(recv); if (!send(&am)) show_error(&am); }
+  bool is_running() { return started && am.get_universal_handler() == recv; }
+};
+
+BCStage *first_bc_stage, *last_bc_stage;
+
+bool send_argc(AM *am) {
+  const uint8_t code = server_cmd_code(F("argc"));
+  return am->send(code) && am->send(static_cast<uint8_t>(42)) && am->send(3.14f) && am->send_packet();
+}
+
 bool recv_argc(AM *am) {
+  am->set_universal_handler(0);
   uint8_t argc;
   if (!am->recv(&argc)) return false;
   if (argc != 3) print(F("ERROR: "));
   print(F("argc received ")); print(static_cast<unsigned long>(argc)); println(F("; expected 3"));
-  am->set_universal_handler(0);
 }
 
-bool test_argc() {
-  am.set_universal_handler(recv_argc);
-  const uint8_t code = server_cmd_code(F("argc"));
-  return am.send(code) && am.send(static_cast<uint8_t>(42)) && am.send(3.14f) && am.send_packet();
-}
+BCStage *bc_argc = new BCStage(send_argc, recv_argc);
+BCStage *bc_stage = bc_argc;
+//BCStage *bc_foo = new BCStage(send_argc, recv_argc, bc_argc);
 
 #endif //BINARY_CLIENT
 
@@ -313,8 +325,10 @@ void loop() {
 #ifndef BINARY_CLIENT
   timer.tick();
 #else //binary client
-  test_argc(); //TODO
-  //TODO
+  if (bc_stage) {
+    if (!bc_stage->started) bc_stage->run();
+    else if (!bc_stage->is_running()) bc_stage = bc_stage->next;
+  }
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 }

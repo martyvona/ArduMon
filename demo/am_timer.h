@@ -14,15 +14,14 @@ public:
   bool start() {
 
     running = false;
-    if (!am->recv()) return running; //skip over command token or code
+    if (!am->recv()) return false; //skip over command token or code
 
     uint8_t h, m, s;
-    if (!am->recv(&h) || !am->recv(&m) || !am->recv(&s)) return running;
+    if (!am->recv(&h) || !am->recv(&m) || !am->recv(&s)) return false;
     total_ms = (h * 3600 + m * 60 + s) * 1000ul;
-    start_ms = millis();
 
     accel = 1;
-    if (am->argc() > 4 && !am->recv(&accel)) return running;
+    if (am->argc() > 4 && !am->recv(&accel)) return false;
 
     if (am->is_txt_mode()) {
       am->send_raw(F("counting down from "));
@@ -43,8 +42,9 @@ public:
       am->vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
     }
 
+    start_ms = millis();
     running = true;
-    return running;
+    return true;
   }
 
   bool is_running() { return running; };
@@ -63,11 +63,8 @@ public:
       ms = remaining_ms - (h * 3600 + m * 60 + s) * 1000ul;
     }
     if (am->is_binary_mode()) {
-#if WITH_INT64
-      am->send(static_cast<uint64_t>(elapsed_ms)); am->send(static_cast<uint32_t>(remaining_ms));
-#else
+      //32 bits is sufficient for up to about 49 days, but we are limited to about 11 days since h,m,s <= 255
       am->send(static_cast<uint32_t>(elapsed_ms)); am->send(static_cast<uint32_t>(remaining_ms));
-#endif
       am->send_packet();
     } else {
       am->send_raw(AM::VT100_CLEAR_LINE);

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "buidlng for native"
+
 src=`ls *.cpp`
 # -Wstringop-overflow=0 suppresses a spurious warning on some versions of g++ with -O3 
 # https://stackoverflow.com/a/75191691

@@ -181,6 +181,8 @@ public:
     return ret;
   }
 
+  handler_t get_universal_handler() { return universal_handler; }
+
   //set a fallback command handler that will handle received commands
   //that did not have a command name (command code in binary mode) matching any handler added with add_cmd()
   //set handler to 0 to remove any existing fallback handler
@@ -190,6 +192,8 @@ public:
     fallback_handler = handler;
     return ret;
   }
+
+  handler_t get_fallback_handler() { return fallback_handler; }
 
   //add a command
   bool add_cmd(const handler_t handler, const char *name, const uint8_t code, const char *description = 0) {

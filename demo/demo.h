@@ -292,6 +292,7 @@ bool recv_argc(AM *am) {
   if (!am->recv(&argc)) return false;
   if (argc != 3) print(F("ERROR: "));
   print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected 3"));
+  return true;
 }
 
 BCStage *bc_argc = new BCStage(send_argc, recv_argc);
@@ -317,13 +318,14 @@ bool recv_param(AM *am) {
   if (!am->recv(&param)) return false;
   if (param != bc_param) print(F("ERROR: "));
   print(F("get_param received ")); print(param); print(F(", expected ")); println(bc_param);
+  return true;
 }
 
 BCStage *bc_param_A = new BCStage(send_param, recv_param, [](){ bc_param = 0.0; });
 BCStage *bc_param_B = new BCStage(send_param, recv_param, [](){ bc_param = 1.0; });
 //TODO moar
 
-bool send_done(AM *am) { println(F("binary client done")); }
+bool send_done(AM *am) { println(F("binary client done")); return true; }
 BCStage *bc_last = new BCStage(send_done, 0); //also shows any error from the previous stage
 
 #endif //BINARY_CLIENT

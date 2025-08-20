@@ -3,10 +3,13 @@
  *
  * See https://github.com/martyvona/ArduMon/blob/main/README.md
  *
- * This "native" demo driver compiles and runs entirely on an OS X or Linux host, no Arduino involved.  It creates and
- * listens on a UNIX socket at a given path.  Connect to that socket with a capable serial terminal program, e.g.
+ * This "native" demo driver compiles and runs on an OS X or Linux host.
  *
- * minicom -D unix#SOCKET_PATH
+ * When compiled as a server (BINARY_CLIENT not defined) this code can run in binary or text mode, controlled by a
+ * command line option, and a UNIX socket file is created to which clients can connect.  In text mode the client would
+ * be a standard serial terminal program like minicom.  In binary mode the client would be another invocation of this
+ * demo but compiled as a client (BINARY_CLIENT defined).  It is also possible to run this demo as a binary client and
+ * connect to a serial port file corresponding to a physical Arduino running the binary demo server.
  *
  * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  *
@@ -43,51 +46,10 @@
 #include <sys/stat.h>
 #include <signal.h>
 
+#include "circ_buf.h"
 #include "arduino_shims.h"
 
 #include <ArduMon.h>
-
-template <size_t capacity> class CircBuf {
-public:
-
-  CircBuf(const char *n) : name(n) {}
-
-  void put(uint8_t val) {
-    if (read_idx == write_idx) throw std::runtime_error(name + " overflow");
-    if (read_idx == capacity) read_idx = write_idx = 0;
-    buf[write_idx++] = val;
-    if (write_idx == capacity) write_idx = 0;
-  }
-
-  uint8_t get() {
-    if (read_idx == capacity) throw std::runtime_error(name + " underflow");
-    uint8_t ret = buf[read_idx++];
-    if (read_idx == capacity) read_idx = 0;
-    if (read_idx == write_idx) { read_idx = capacity; write_idx = 0; }
-    return ret;
-  }
-
-  uint8_t peek() {
-    if (read_idx == capacity) throw std::runtime_error(name + " underflow");
-    return buf[read_idx];
-  }
-
-  size_t size() {
-    if (read_idx == capacity) return 0;
-    if (read_idx == write_idx) return capacity;
-    if (write_idx > read_idx) return write_idx - read_idx;
-    return capacity - (read_idx - write_idx);
-  }
-
-  size_t free() { return capacity - size(); }
-
-  std::string status() { return name + ": " + std::to_string(size()) + "/" + std::to_string(capacity) + " used"; }
-
-private:
-  const std::string name;
-  uint8_t buf[capacity];
-  size_t write_idx = 0, read_idx = capacity;
-};
 
 template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonStream {
 public :
@@ -108,10 +70,14 @@ public :
 //emulate the 64 byte Arduino serial input buffer
 #define SERIAL_IN_BUF_SZ 64
 
+#ifndef BINARY_CLIENT
 //since this demo is single threaded
 //and doesn't implement the equivalent of the Arduino serial send interrupt
 //use a large output buffer so that command handlers which send a lot, like "help", do not hang
 #define SERIAL_OUT_BUF_SZ 2048
+#else
+#define SERIAL_OUT_BUF_SZ 64
+#endif
 
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
 
@@ -119,13 +85,25 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 #include "../demo.h"
 //demo.ino defines the global ArduMon isntance am
 
-int listen_socket;
-std::string socket_path;
+#ifndef BINARY_CLIENT
+int listen_fileno = -1;
+#endif
+int comm_fileno = -1;
+std::string comm_path;
 bool quit;
 
+#ifndef BINARY_CLIENT
 bool quit_cmd(AM *am) { quit = true; return true; }
+#endif
 
-void usage() { std::cerr << "USAGE: demo [-b|--binary] <unix_socket_filename>\n"; exit(1); }
+void usage() {
+#ifdef BINARY_CLIENT
+  std::string role_args = "";
+#else
+  std::string role_args = "[-b|binary] ";
+#endif
+  std::cerr << "USAGE: demo " << role_args <<  "[-v|--verbose] <comm_file_or_path>\n"; exit(1);
+}
 
 void status() {
   std::cout << demo_stream.in.status() << "\n";
@@ -139,7 +117,7 @@ void status() {
   std::cout << "command interpreter " << state << "\n";
   AM::millis_t rtm = am.get_recv_timeout_ms();
   if (rtm > 0) std::cout << "command receive timeout " << rtm << "ms\n";
-  std::cout << "UNIX socket: " << socket_path << "\n";
+  std::cout << "comm file: " << comm_path << "\n";
   std::cout << std::flush;
 }
 
@@ -152,11 +130,12 @@ void terminated() {
     try { std::rethrow_exception(std::current_exception()); }
     catch (const std::exception& e) { std::cerr << "unhandled exception: " << e.what() << "\n"; }
   }
-  if (exists(socket_path)) {
-    std::cout << "closing UNIX socket\n";
-    close(listen_socket);
-    unlink(socket_path.c_str());
-  }
+  std::cout << "closing " << comm_path << "\n";
+  if (comm_fileno >= 0) close(comm_fileno);
+#ifndef BINARY_CLIENT
+  if (listen_fileno >= 0) close(listen_fileno);
+  if (exists(comm_path)) unlink(comm_path.c_str());
+#endif
   exit(1);
 }
 
@@ -174,102 +153,116 @@ int main(int argc, const char **argv) {
   sig_handler.sa_flags = 0;
   sigaction(SIGINT, &sig_handler, NULL);
 
-  const char *socket_filename;
-  bool binary = false, verbose = false;
+#ifdef BINARY_CLIENT
+  std::string role = "client";
+#else
+  std::string role = "server";
+  bool binary = false;
+#endif
+
+  char buf[2048];
+
+  const char *comm_file_or_path;
+  bool verbose = false;
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
-      if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true;
-      else if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
+#ifndef BINARY_CLIENT
+      if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true; else
+#endif
+      if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
       else usage();
-    } else socket_filename = argv[i];
+    } else comm_file_or_path = argv[i];
   }
 
-  if (!socket_filename) usage();
+  if (!comm_file_or_path) usage();
 
-  std::cout << "adding demo commands\n";
-  setup();
+  std::cout << "ArduMon demo " << role << "\n";
+
+  setup(); //call Arduino setup() method defined in demo.h
+
+#ifndef BINARY_CLIENT
   if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error(&am);
   std::cout << "added "
             << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds()) << " commands\n";
-
   if (binary) {
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
   } else std::cout << "proceeding in text mode\n";
+#endif
 
-  char buf[2048];
-  if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
-
-  socket_path += buf;
-  socket_path += "/";
-  socket_path += socket_filename;
+  if (comm_file_or_path[0] != '/') {
+    if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
+    comm_path += buf;
+    comm_path += "/";
+    comm_path += comm_file_or_path;
+  }
 
   status();
 
-  if (exists(socket_path)) {
-    std::cout << "UNIX socket path exists, removing\n";
-    unlink(socket_path.c_str());
+#ifndef BINARY_CLIENT 
+  if (exists(comm_path)) {
+    std::cout << comm_path << " exists, removing\n";
+    unlink(comm_path.c_str());
   }
 
-  listen_socket = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (listen_socket < 0) { perror("error opeining UNIX socket"); exit(1); }
+  listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (listen_fileno < 0) { perror(("error opeining " + comm_path).c_str()); exit(1); }
 
   struct sockaddr_un addr;
   memset(&addr, 0, sizeof(struct sockaddr_un));
   addr.sun_family = AF_UNIX;
-  strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
-  if (bind(listen_socket, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
-    perror("error binding UNIX socket"); exit(1);
+  strncpy(addr.sun_path, comm_path.c_str(), sizeof(addr.sun_path) - 1);
+  if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
+    perror(("error binding " + comm_path).c_str()); exit(1);
   }
 
-  if (listen(listen_socket, 1) < 0) { perror("error listening on UNIX socket"); exit(1); }
+  if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + comm_path).c_str()); exit(1); }
 
-  std::cout << "demo server: waiting for connection on UNIX socket " << socket_path << "...\n";
+  std::cout << "demo server: waiting for connection on " << comm_path << "...\n";
   std::cout << "example connection:\n";
-  std::cout << "minicom -D unix#" << socket_path << "\n";
+  std::cout << "minicom -D unix#" << comm_path << "\n";
   std::cout << std::flush;
 
-  int data_socket = accept(listen_socket, NULL, NULL);
-  if (data_socket < 0) { perror("error accepting connection on UNIX socket"); exit(1); }
-  std::cout << "got connection on UNIX socket " << socket_path << "\n";
+  comm_fileno = accept(listen_fileno, NULL, NULL);
+  if (comm_fileno < 0) { perror(("error accepting connection on " + comm_path).c_str()); exit(1); }
+  std::cout << "got connection on " << comm_path << "\n";
+#else
+  comm_fileno = open(comm_path.c_str(), O_RDWR);
+  if (comm_fileno < 0) { perror(("error opening " + comm_path).c_str()); exit(1); }
+#endif
 
-  fcntl(data_socket, F_SETFL, O_NONBLOCK);
+  fcntl(comm_fileno, F_SETFL, O_NONBLOCK);
 
   const uint32_t STATUS_MS = 2000;
   uint32_t ms_to_status = STATUS_MS;
   quit = false;
   while (!quit) {
     
-    int ret = read(data_socket, buf, std::min(sizeof(buf), demo_stream.in.free()));
+    int ret = read(comm_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
     if (ret < 0) {
       if (errno == ECONNRESET || errno == ENOTCONN) break;
       else if (errno == EAGAIN) ret = 0; //nonblocking read failed due to nothing available to read
-      else { perror("error reading from demo client"); exit(1); }
+      else { perror(("error reading from " + comm_path).c_str()); exit(1); }
     }
-    if (verbose && ret > 0) std::cout << "read " << ret << " bytes from demo client\n" << std::flush;
 
     for (size_t i = 0; i < ret; i++) demo_stream.in.put(buf[i]);
     
-    loop();
+    loop(); //call Arduino loop() method defined in demo.h
     
     AM::Error e = am.get_err();
-    if (e != AM::Error::NONE) {
-      std::cerr << "command interpreter error: " << am.err_msg(e) << "\n";
-      am.clear_err();
-    }
+    if (e != AM::Error::NONE) { std::cerr << "ArduMon error: " << am.err_msg(e) << "\n"; am.clear_err(); }
     
     size_t ns = std::min(demo_stream.out.size(), sizeof(buf));
     if (ns > 0) {
       for (size_t i = 0; i < ns; i++) buf[i] = demo_stream.out.get();
       int nw = 0;
       while (ns - nw > 0) {
-        ret = write(data_socket, buf + nw, ns - nw);
+        ret = write(comm_fileno, buf + nw, ns - nw);
         if (ret < 0) {
           if (errno == ECONNRESET || errno == ENOTCONN) break;
           else if (errno == EAGAIN) ret = 0; //nonblocking write failed
-          else { perror("error writing to demo client"); exit(1); }
+          else { perror(("error writing to " + comm_path).c_str()); exit(1); }
         }
-        if (verbose && ret > 0) std::cout << "wrote " << ret << " bytes to demo client\n" << std::flush;
         nw += ret;
         if (ns - nw > 0) {
           sleep_ms(1);
@@ -282,11 +275,16 @@ int main(int argc, const char **argv) {
     if (verbose && --ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
   }
 
-  if (!quit) std::cout << "lost connection on UNIX socket\n";
+#ifndef BINARY_CLIENT
+  if (!quit) std::cout << "lost connection on " << comm_path << "\n";
+#endif
 
-  std::cout << "closing UNIX socket\n";
-  close(listen_socket);
-  unlink(socket_path.c_str());
+  std::cout << "closing " << comm_path << "\n";
+  close(comm_fileno); comm_fileno = -1;
+#ifndef BINARY_CLIENT
+  close(listen_fileno); listen_fileno = -1;
+  unlink(comm_path.c_str());
+#endif
 
   exit(0);
 }

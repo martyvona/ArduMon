@@ -1,6 +1,5 @@
 #include <ArduMon.h>
 
-#include "dbg_print.h"
 #include "am_timer.h"
 
 //builds text server demo by default
@@ -18,48 +17,34 @@
 #define BINARY false
 #endif
 
-#ifndef BIN_RX_PIN
+//comment these out to compile the binary demo (client or server) to use default serial port for binary communication
+//this will disable debug prints, but can be useful in particular to run the binary server on an Arduino
+//connected by USB to the binary client running natively on the host
 #define BIN_RX_PIN 10
-#endif
-
-#ifndef BIN_TX_PIN
 #define BIN_TX_PIN 11
-#endif
 
-#ifndef WITH_INT64
 #define WITH_INT64 true
-#endif
-
-#ifndef WITH_FLOAT
 #define WITH_FLOAT true
-#endif
-
-#ifndef WITH_DOUBLE
 #define WITH_DOUBLE true
-#endif
-
-#ifndef WITH_BINARY
 #define WITH_BINARY true
-#endif
-
-#ifndef WITH_TEXT
 #define WITH_TEXT true
-#endif
 
-#ifndef BAUD
 #define BAUD 115200
-#endif
 
-#ifndef MAX_CMDS
 #define MAX_CMDS 32
-#endif
 
-#ifndef RECV_BUF_SZ
 #define RECV_BUF_SZ 128
-#endif
-
-#ifndef SEND_BUF_SZ
 #define SEND_BUF_SZ 128
+
+//it's possible to run the binary client or server with the binary communication on the default serial port
+//e.g. run the binary server this way and connect the Arduino by USB to a host
+//and then run the binary client natively on the host
+//in this situation we need to disable the debug prints as they would also use the default serial port
+#if defined(ARDUINO) && BINARY && !defined(BIN_RX_PIN)
+#define print(v) {}
+#define println(v) {}
+#else
+#include "dbg_print.h"
 #endif
 
 //specialize the ArduMon class template and call that AM
@@ -68,16 +53,26 @@ typedef ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH
 /* set up the ArduMon input stream AM_STREAM **************************************************************************/
 
 #ifdef ARDUINO
-#if BINARY //for binary demo connect BIN_TX_PIN of client Arduino to BIN_RX_PIN of server Arduino and vice-versa
+
+#if BINARY && defined(BIN_RX_PIN)
+
+//connect BIN_TX_PIN of client Arduino to BIN_RX_PIN of server Arduino and vice-versa
 #ifdef ESP32
+//use second hardware serial port on ESP32, will configure it to use BIN_RX_PIN and BIN_TX_PIN in setup() below
 #define AM_STREAM Serial1
 #else
+//use software serial if not on ESP32
 #include <SoftwareSerial.h>
 SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 #endif //ESP32
-#else //for text demo connect an Arduino by USB and run minicom or screen on USB serial port as described in README.md
+
+#else //BINARY && defined(BIN_RX_PIN)
+
+//connect an Arduino by USB and run minicom or screen on USB serial port as described in README.md
 #define AM_STREAM Serial
-#endif //BINARY
+
+#endif //BINARY && defined(BIN_RX_PIN)
+
 #endif //ARDUINO
 
 //AM_STREAM is defined externally for native build
@@ -91,23 +86,25 @@ Timer<AM> timer;
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 
-/* server command handlers ********************************************************************************************/
-
 void show_error(AM* am) {
   AM::Error e = am->get_err();
   if (e != AM::Error::NONE) { println(AM::err_msg(e)); am->clear_err(); }
 }
 
-bool noop(AM *am) { return am->end_cmd(); }
+/* server command handlers ********************************************************************************************/
 
 bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
 
 bool argc(AM *am) { return am->send(am->argc()) && am->end_cmd(); }
 
+bool gcc(AM *am) {
+  char *name; return am->recv() && am->recv(name) && am->send(am->get_cmd_code(name)) && am->end_cmd();
+}
+
 #ifndef BINARY_CLIENT
 bool start_timer(AM *am) { return timer.start(am); }
-bool stop_timer(AM *am) { return timer.stop(am); }
-bool get_timer(AM *am) { return timer.get_time(am); }
+bool stop_timer(AM *am) { return timer.stop(am) && am->end_cmd(); }
+bool get_timer(AM *am) { return timer.get_time(am) && am->end_cmd(); }
 #else
 bool start_timer(AM *am) { return true; }
 bool stop_timer(AM *am) { return true; }
@@ -231,128 +228,20 @@ float float_param = 0;
 bool set_float_param(AM *am) { return am->recv() && am->recv(&float_param) && am->end_cmd(); }
 bool get_float_param(AM *am) { return am->recv() && am->send(float_param) && am->end_cmd(); }
 
-/* binary client state machine ****************************************************************************************/
-
-//in the text demo the user is the client, interacting as desired with the ArduMon server through a serial terminal
-//in the binary demo the client is its own separate program, and the interaction is a fixed state machine
-
-#ifdef BINARY_CLIENT
-
-struct CmdRec {
-  const uint8_t code; const __FlashStringHelper * const name; CmdRec *prev;
-  CmdRec(uint8_t c, const __FlashStringHelper *n) : code(c), name(n) { }
-};
-CmdRec *last_server_cmd;
-uint8_t server_cmd_code(const __FlashStringHelper *name, const CmdRec *rec = last_server_cmd) {
-  if (!rec) { print(F("ERROR, unknown command: ")); println(name); return 0; }
-  if (AM::strcmp_PP(rec->name, name) == 0) return rec->code;
-  return server_cmd_code(name, rec->prev);
-}
-
-struct BCStage;
-BCStage *first_bc_stage, *last_bc_stage, *bc_stage;
-
-struct BCStage {
-
-  typedef void (*init_t)(void);
-  init_t init;
-
-  AM::handler_t send, recv;
-
-  BCStage *next;
-
-  bool started = false;
-
-  BCStage(AM::handler_t s, AM::handler_t r, init_t i = 0) : send(s), recv(r), init(i) {
-    if (!first_bc_stage) first_bc_stage = bc_stage = this;
-    if (last_bc_stage) last_bc_stage->next = this;
-    last_bc_stage = this;
-  }
-
-  void run() {
-    show_error(&am); //show and clear any error from previous stage
-    if (init) init();
-    started = true;
-    am.set_universal_handler(recv);
-    if (send && !send(&am)) show_error(&am);
-  }
-
-  bool is_running() { return started && am.get_universal_handler() == recv; }
-};
-
-bool send_argc(AM *am) {
-  const uint8_t code = server_cmd_code(F("argc"));
-  print(F("sending argc (code=")); print(static_cast<int>(code)); println(F(") with 3 args"));
-  return am->send(code) && am->send(static_cast<uint8_t>(42)) && am->send(3.14f) && am->send_packet();
-}
-
-bool recv_argc(AM *am) {
-  am->set_universal_handler(0);
-  uint8_t argc;
-  if (!am->recv(&argc)) return false;
-  if (argc != 3) print(F("ERROR: "));
-  print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected 3"));
-  return true;
-}
-
-BCStage *bc_argc = new BCStage(send_argc, recv_argc);
-
-float bc_param = 0.0;
-
-bool send_param(AM *am) {
-  uint8_t code = server_cmd_code(F("set_param"));
-  print(F("sending set_param (code=")); print(static_cast<int>(code)); print(F(") value=")); println(bc_param);
-  if (!am->send(code) || !am->send(bc_param) || !am->send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
-  code = server_cmd_code(F("get_param"));
-  print(F("sending get_param (code=")); print(static_cast<int>(code)); println(F(")"));
-  return am->send(code) && am->send_packet(); //1 + 1 + 1 = 3 bytes
-  //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
-  //so the above sends all block until the data can be put into the client's serial send buffer
-  //thus, we just rapidly sent two packets totalling 7 + 3 = 10 bytes, which should be OK because the
-  //server's serial receive buffer should be at least 64 bytes; now we wait for a response to establish flow control
-}
-
-bool recv_param(AM *am) {
-  am->set_universal_handler(0);
-  float param;
-  if (!am->recv(&param)) return false;
-  if (param != bc_param) print(F("ERROR: "));
-  print(F("get_param received ")); print(param); print(F(", expected ")); println(bc_param);
-  return true;
-}
-
-BCStage *bc_param_A = new BCStage(send_param, recv_param, [](){ bc_param = 0.0; });
-BCStage *bc_param_B = new BCStage(send_param, recv_param, [](){ bc_param = 1.0; });
-//TODO moar
-
-bool send_done(AM *am) { println(F("binary client done")); return true; }
-BCStage *bc_last = new BCStage(send_done, 0); //also shows any error from the previous stage
-
-#endif //BINARY_CLIENT
-
 #ifndef BASELINE_MEM
 void add_cmds() {
 
   am.set_txt_prompt(F("demo>"));
   am.set_txt_echo(true);
 
-#ifndef BINARY_CLIENT
 #define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error(&am);
-#else
-#define ADD_CMD(func, name, desc) {                         \
-  CmdRec *new_cmd = new CmdRec(am.get_num_cmds(), F(name)); \
-  if (last_server_cmd) new_cmd->prev = last_server_cmd;     \
-  last_server_cmd = new_cmd;                                \
-}
-#endif
 
-  ADD_CMD(noop, "noop", "no operation");
+  ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
   ADD_CMD(argc, "argc", "show arg count");
-  ADD_CMD(start_timer, "start_timer",
-          "hours minutes seconds [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
-  ADD_CMD(stop_timer, "stop_timer", "stop timer");
-  ADD_CMD(get_timer, "get_timer", "get timer");
+  ADD_CMD(start_timer, "st", "hours minutes seconds [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
+  ADD_CMD(stop_timer, "ot", "stop timer");
+  ADD_CMD(get_timer, "gt", "get timer");
   ADD_CMD(echo_char, "ec", "echo char");
   ADD_CMD(echo_str, "es", "echo str");
   ADD_CMD(echo_bool, "eb", "echo bool");
@@ -380,35 +269,182 @@ void add_cmds() {
 }
 #endif //BASELINE_MEM
 
+/* binary client state machine ****************************************************************************************/
+
+//in the text demo the user is the client, interacting as desired with the ArduMon server through a serial terminal
+//in the binary demo the client is its own separate program, and the interaction is a fixed state machine
+
+#ifdef BINARY_CLIENT
+
+class BCStage;
+BCStage *first_bc_stage, *last_bc_stage, *current_bc_stage;
+
+class BCStage {
+public:
+
+  typedef void (*callback_t)(void);
+
+  BCStage(AM::handler_t _send, AM::handler_t _recv, callback_t _before = 0, callback_t _after = 0) :
+    send(_send), recv(_recv), before(_before), after(_after) {
+    if (!first_bc_stage) first_bc_stage = current_bc_stage = this;
+    if (last_bc_stage) last_bc_stage->next = this;
+    last_bc_stage = this;
+  }
+
+  //returns pointer to next stage when done, else null
+  BCStage * update() {
+    if (!started) { start(); return 0; }
+    if (done) return next;
+    if (am.get_universal_handler() == recv) return 0; //still running
+    if (!done && after) after(); //run after callback, if any, once when transitioning from running to done
+    done = true;
+    return next;
+  }
+
+private:
+
+  const callback_t before, after;
+  const AM::handler_t send, recv;
+  BCStage *next;
+  bool started = false, done = false;
+
+  void start() {
+    show_error(&am); //show and clear any error from previous stage
+    if (before) before(); //run before callback, if any
+    started = true;
+    am.set_universal_handler(recv); //install receive handler, if any
+    if (send && !send(&am)) show_error(&am); //invoke send method, if any
+  }
+};
+
+//there are several ways for the client and server to know that the code for e.g. the "argc" command is 2
+//one approach is just to hardcode that into both the client and server, e.g. in a shared header file
+//another approach is for the server to implement a "gcc" command that will return the code for a given command name
+//and register the gcc command with a well-known command code, e.g. 0; this latter approach is demonstrated here
+
+//send the gcc (get command code) command to the server with argument bc_cmd_name
+const char *bc_cmd_name;
+bool bc_send_gcc(AM *am) {
+  print(F("sending gcc (code=0) for cmd name ")); println(bc_cmd_name);
+  return am->send(static_cast<uint8_t>(0)) && am->send(bc_cmd_name) && am->send_packet();
+}
+
+//receive response packet from server for the gcc command and save the result in bc_cmd_code
+uint8_t bc_cmd_code;
+bool bc_recv_gcc(AM *am) {
+  am->set_universal_handler(0); //remove ourself as the universal packet handler
+  uint16_t code;
+  if (!am->recv(&code)) return false;
+  if (code < 0) print(F("ERROR: "));
+  else bc_cmd_code = static_cast<uint8_t>(code);
+  print(F("gcc received ")); println(static_cast<int>(code));
+  return true;
+}
+
+//this macro encapsulates the boilerplate to add a binary client stage to get a command code
+//#cmd is C-preprocessor token stringification and bc_cmd_code_##cmd is token pasting
+#define BC_GCC(cmd) \
+uint8_t bc_cmd_code_##cmd; \
+const BCStage *bc_gcc_##cmd = new BCStage(bc_send_gcc, bc_recv_gcc, \
+                                          [](){ bc_cmd_name = #cmd; }, [](){ bc_cmd_code_##cmd = bc_cmd_code; });
+
+//get command code for the "argc" command and save it in bc_cmd_code_argc
+BC_GCC(argc)
+
+//send the argc (argument count) command to the server with three arguments
+bool bc_send_argc(AM *am) {
+  print(F("sending argc (code=")); print(static_cast<int>(bc_cmd_code_argc)); println(F(") with 3 args"));
+  return am->send(bc_cmd_code_argc) && am->send(static_cast<uint8_t>(42)) && am->send(3.14f) && am->send_packet();
+}
+
+//receive response packet from server for the argc command and verify that the result was 3
+bool bc_recv_argc(AM *am) {
+  am->set_universal_handler(0); //remove ourself as the universal packet handler
+  uint8_t argc;
+  if (!am->recv(&argc)) return false;
+  if (argc != 3) print(F("ERROR: "));
+  print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected 3"));
+  return true;
+}
+
+const BCStage *bc_argc = new BCStage(bc_send_argc, bc_recv_argc);
+
+//get command code for the "sfp" command and save it in bc_cmd_code_sfp, and similar for "gfp"
+BC_GCC(sfp)
+BC_GCC(gfp)
+
+//send the sfp (set float param) command to the server with argument bc_param
+//then send the gfp (get float param) command
+float bc_param = 0.0;
+bool bc_send_param(AM *am) {
+  print(F("sending sfp (code=")); print(static_cast<int>(bc_cmd_code_sfp)); print(F(") value=")); println(bc_param);
+  if (!am->send(bc_cmd_code_sfp) || !am->send(bc_param) || !am->send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
+
+  print(F("sending gfp (code=")); print(static_cast<int>(bc_cmd_code_gfp)); println(F(")"));
+  return am->send(bc_cmd_code_gfp) && am->send_packet(); //1 + 1 + 1 = 3 bytes
+
+  //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
+  //so the above sends all block until the data can be put into the client's serial send buffer
+  //thus, we just rapidly sent two packets totalling 7 + 3 = 10 bytes, which should be OK because the
+  //server's serial receive buffer should be at least 64 bytes; now we wait for a response to establish flow control
+}
+
+//receive response packet from server for the gfp command and verify that the result was bc_param
+bool bc_recv_param(AM *am) {
+  am->set_universal_handler(0); //remove ourself as the universal packet handler
+  float param;
+  if (!am->recv(&param)) return false;
+  if (param != bc_param) print(F("ERROR: "));
+  print(F("get_param received ")); print(param); print(F(", expected ")); println(bc_param);
+  return true;
+}
+
+const BCStage *bc_param_A = new BCStage(bc_send_param, bc_recv_param, [](){ bc_param = 3.14; });
+const BCStage *bc_param_B = new BCStage(bc_send_param, bc_recv_param, [](){ bc_param = -2.71; });
+
+//TODO more stages
+
+bool bc_done(AM *am) { println(F("binary client done")); return true; }
+const BCStage *bc_last = new BCStage(bc_done, 0); //also shows any error from the previous stage
+
+#undef BC_GCC
+
+#endif //BINARY_CLIENT
+
+/* Arduino setup() and loop() *****************************************************************************************/
+
 void setup() {
+
+//configure Arduino serial ports
 #ifdef ARDUINO
-  Serial.begin(BAUD);
-#if BINARY
+  Serial.begin(BAUD); //default hardware serial (i.e. usb port) is used in all cases
+  //binary client and server can optionally also use a separate hardware or software serial port
+  //for the binary connection between two Arduinos
+#if BINARY && defined(BIN_RX_PIN)
 #ifdef ESP32
   AM_STREAM.begin(BAUD, SERIAL_8N1, BIN_RX_PIN, BIN_TX_PIN);
 #else
   AM_STREAM.begin(BAUD);
 #endif //ESP32
-#endif //BINARY
+#endif //BINARY && defined(BIN_RX_PIN)
 #endif //ARDUINO
+
 #ifndef BASELINE_MEM
-  add_cmds();
-#endif
 #ifdef BINARY_CLIENT
   am.set_send_wait_ms(AM::ALWAYS_WAIT);
+#else
+  add_cmds(); //text or binary server
 #endif
+#endif //BASELINE_MEM
 }
 
 void loop() {
 #ifndef BASELINE_MEM
   am.update();
 #ifndef BINARY_CLIENT
-  timer.tick(&am); //text demo or binary server
-#else //binary client
-  if (bc_stage) {
-    if (!bc_stage->started) bc_stage->run();
-    else if (!bc_stage->is_running()) bc_stage = bc_stage->next;
-  }
+  timer.tick(&am); //text or binary server
+#else //binary client: crank the state machine
+  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) current_bc_stage = next;
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 }

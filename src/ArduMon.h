@@ -344,6 +344,19 @@ public:
   //in text mode send one line per command: cmd_name cmd_code_hex cmd_description
   bool send_cmds() { return send_cmds_impl(); }
 
+  //get the command code for a command name; returns -1 if not found
+  int16_t get_cmd_code(const char *name) { return get_cmd_code_impl<char>(name); }
+#ifdef ARDUINO
+  int16_t get_cmd_code(const FSH *name) { return get_cmd_code_impl<FSH>(name); }
+#endif
+
+  //get the commad name for a command code; returns null if not found
+  //the returned pointer will be in program memory on AVR if and only if the command was originally registered that way 
+  const char * get_cmd_name(const uint8_t code) {
+    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return cmds[i].name;
+    return 0;
+  }
+
   //binary mode: send a single character (8 bit clean)
   //text mode: send space separator if necessary, then send character with quote and escape iff nessary
   bool send(const char v) { return send_txt_sep() && write_char(v, true); }
@@ -526,6 +539,7 @@ public:
     return write_char('\x1B') && write_char('[') && write_char(fg_bg) && write_char(color) && write_char('m');
   }
 
+  //Arduino platform includes strcmp_P() but not strcmp_PP() where both arguments are in program memory on AVR
   //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
   static int strcmp_PP(const char* a, const char* b) {
     if (a == b) return 0;
@@ -1383,7 +1397,7 @@ private:
 
   //see end_cmd()
   bool end_cmd_impl() {
-    if (!binary_mode) send_CRLF(); //ignore any error
+    if (!binary_mode && space_pending) send_CRLF(); //ignore any error
     handling = space_pending = false;
     arg_count = 0;
     recv_ptr = recv_buf;
@@ -1419,6 +1433,11 @@ private:
       if (!send_CRLF()) return false;
     }
     return true;
+  }
+
+  template <typename T> int16_t get_cmd_code_impl(const T *name) {
+    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(name)) return cmds[i].code;
+    return -1;
   }
 
   //trim trailing whitespace and zeros backwards from start index; returns next un-trimmed index

@@ -36,7 +36,7 @@ public:
     async_cmd_code = -1;
     if (async && am->argc() > 6 && !am->recv(&async_cmd_code)) return false;
 
-    sync_throttle_ms = 500;
+    sync_throttle_ms = 100;
     if (!async && am->argc() > 6 && !am->recv(&sync_throttle_ms)) return false;
 
     if (am->is_txt_mode()) {
@@ -83,6 +83,7 @@ public:
         am->send_raw(m, 2|AM::FMT_PAD_ZERO) && am->send_raw(':') &&
         am->send_raw(s, 2|AM::FMT_PAD_ZERO) && am->send_raw('.') &&
         am->send_raw(ms, 3|AM::FMT_PAD_ZERO) &&
+        ((!async && running) || am->send_CRLF()) &&
         (async || running || (am->send_raw(AM::VT100_CURSOR_VISIBLE) && am->vt100_set_attr(AM::VT100_ATTR_RESET)));
     } else {
       //32 bits is sufficient for up to about 49 days, but we are limited to about 11 days since h,m,s <= 255
@@ -104,14 +105,14 @@ public:
     remaining_ms = elapsed_ms <= total_ms ? total_ms - elapsed_ms : 0;
     if (remaining_ms == 0 || (!async && am->is_txt_mode() && am->get_key() != 0)) running = false;
     if (!async) {
-      if (now - last_send_ms >= sync_throttle_ms) get_time(am, now);
+      if (now - last_send_ms >= sync_throttle_ms || !running) get_time(am, now);
       if (!running) am->end_cmd();
     }
     return running;
   }
 
 private:
-  bool running, async;
+  bool running, async = true;
   float accel;
   uint16_t async_cmd_code;
   uint64_t start_ms, total_ms, elapsed_ms, remaining_ms, sync_throttle_ms, last_send_ms;

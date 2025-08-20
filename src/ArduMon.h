@@ -247,7 +247,7 @@ public:
   void set_txt_prompt(const FSH *prompt) { txt_prompt = CCS(prompt); txt_prompt_progmem = true; send_txt_prompt(); }
 #endif
 
-  const millis_t ALWAYS_WAIT = -1ul; //-1 in base 2 is all 1s as unsigned
+  static const millis_t ALWAYS_WAIT = -1; //-1 in base 2 is all 1s as unsigned
 
   //set receive timeout
   //if a command starts being received but is not finished by this timeout the command interpreter will reset

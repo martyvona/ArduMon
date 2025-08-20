@@ -229,7 +229,7 @@ bool echo_multiple(AM *am) {
 
 float float_param = 0;
 bool set_float_param(AM *am) { return am->recv() && am->recv(&float_param) && am->end_cmd(); }
-bool get_float_param(AM *am) { return am->recv() && am->send(&float_param) && am->end_cmd(); }
+bool get_float_param(AM *am) { return am->recv() && am->send(float_param) && am->end_cmd(); }
 
 /* binary client state machine ****************************************************************************************/
 

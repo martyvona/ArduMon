@@ -11,6 +11,8 @@ script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 fqbn=$1
 
-echo "building for $fqbn"
+what=`pwd`
+what=${what##*/}
+echo "building $what for $fqbn"
 
 arduino-cli compile --fqbn $fqbn --libraries $script_dir/../ -e .

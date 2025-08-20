@@ -1,7 +1,8 @@
 #ifndef ARDUINO_SHIMS_H
 #define ARDUINO_SHIMS_H
 
-#include <time.h>
+#include <chrono>
+#include <thread>
 
 //shims for building on native host, currently supports OS X and Linux including WSL
 
@@ -14,21 +15,11 @@ template <typename T> static const T pgm_read_byte(const T *p) { return *p; }
 static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
 
 uint64_t millis() {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
-  static uint64_t start_ms = now_ms;
-  return now_ms - start_ms;
+  static const auto start = std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
 }
 
-void delayMicroseconds(uint16_t us) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  uint64_t start_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul, now_us;
-  do {
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    now_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul;
-  } while (now_us - start_us < us);
-}
+void delayMicroseconds(uint16_t us) { std::this_thread::sleep_for(std::chrono::microseconds(us)); }
 
 #endif //ARDUINO_SHIMS_H

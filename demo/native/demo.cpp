@@ -43,6 +43,8 @@
 #include <sys/stat.h>
 #include <signal.h>
 
+#include "arduino_shims.h"
+
 #include <ArduMon.h>
 
 template <size_t capacity> class CircBuf {

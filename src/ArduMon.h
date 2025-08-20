@@ -29,11 +29,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#ifndef ARDUINO
-#include <time.h>
-#endif
-
-//ESP32, STM32, and native do have dtostre(), use snprintf() instead
+//ESP32, STM32, and native do not have dtostre(), use snprintf() instead
 #if !defined(ARDUINO) || !defined(__AVR__)
 #include <stdio.h>
 #endif
@@ -83,7 +79,6 @@ public:
   typedef unsigned long millis_t;
 
 #ifndef ARDUINO
-  typedef char __FlashStringHelper;
   typedef ArduMonStream Stream;
 #endif
 
@@ -1504,35 +1499,6 @@ private:
   static uint8_t * BP(void *p) { return reinterpret_cast<uint8_t*>(p); }
 
   static const uint8_t * BP(const void *p) { return reinterpret_cast<const uint8_t*>(p); }
-
-#ifndef ARDUINO
-
-  //shims for building on native host, currently supports OS X and Linux including WSL
-
-  static const FSH *F(const char *p) { return p; }
-
-  template <typename T> static const T pgm_read_byte(const T *p) { return *p; }
-
-  static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
-
-  millis_t millis() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
-    static uint64_t start_ms = now_ms;
-    return now_ms - start_ms;
-  }
-
-  void delayMicroseconds(uint16_t us) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t start_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul, now_us;
-    do {
-      clock_gettime(CLOCK_MONOTONIC, &ts);
-      now_us = ts.tv_sec * 1000000ul + ts.tv_nsec / 1000ul;
-    } while (now_us - start_us < us);
-  }
-#endif
 };
 
 #endif

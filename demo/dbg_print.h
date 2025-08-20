@@ -24,8 +24,6 @@ void println(const double v) { Serial.println(v); }
 
 #else
 
-#define F(p) (p)
-
 #include <cstdio>
 
 void print  (const char v) { printf("%c", v); }

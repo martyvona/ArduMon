@@ -1,10 +1,6 @@
 #ifndef AM_TIMER_H
 #define AM_TIMER_H
 
-#ifndef ARDUINO
-#include <time.h>
-#endif
-
 //A countdown timer which demonstrates several ways ArduMon commands can send data over time.
 //
 //In synchronous text mode the start_timer command does not end until the timer reaches zero, or the user stops it by
@@ -115,21 +111,10 @@ public:
   }
 
 private:
-
   bool running, async;
   float accel;
   uint16_t async_cmd_code;
   uint64_t start_ms, total_ms, elapsed_ms, remaining_ms, sync_throttle_ms, last_send_ms;
-
-#ifndef ARDUINO
-  uint64_t millis() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    uint64_t now_ms = ts.tv_sec * 1000ul + ts.tv_nsec / 1000000ul;
-    static uint64_t start_ms = now_ms;
-    return now_ms - start_ms;
-  }
-#endif
 };
 
 #endif //AM_TIMER_H

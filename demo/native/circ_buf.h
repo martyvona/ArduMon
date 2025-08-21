@@ -56,6 +56,8 @@ public:
 
   size_t free() { return capacity - size(); }
 
+  void clear() { write_idx = 0; read_idx = capacity; }
+
   std::string status() { return name + ": " + std::to_string(size()) + "/" + std::to_string(capacity) + " used"; }
 
 private:

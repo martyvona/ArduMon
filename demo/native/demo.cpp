@@ -51,6 +51,7 @@
 #include "circ_buf.h"
 #include "arduino_shims.h"
 
+bool quit;
 #include <ArduMon.h>
 
 template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonStream {
@@ -92,7 +93,6 @@ int listen_fileno = -1;
 #endif
 int com_fileno = -1;
 std::string com_path;
-bool quit;
 
 #ifndef BINARY_CLIENT
 bool quit_cmd(AM *am) { quit = true; return true; }
@@ -117,12 +117,10 @@ void status() {
   std::string state = "idle";
   if (am.is_receiving()) state = "receiving";
   else if (am.is_handling()) state = "handling";
-  if (am.is_binary_mode()) state += " (binary)";
-  std::cout << "command interpreter " << state << "\n";
+  std::cout << "command interpreter " << state << (am.is_binary_mode() ? " (binary)" : " (text)") << "\n";
   AM::millis_t rtm = am.get_recv_timeout_ms();
   if (rtm > 0) std::cout << "command receive timeout " << rtm << "ms\n";
-  std::cout << "com file: " << com_path << "\n";
-  std::cout << std::flush;
+  std::cout << "com file: " << com_path << "\n" << std::flush;
 }
 
 bool exists(const std::string path) { struct stat s; return (stat(path.c_str(), &s) == 0); }
@@ -163,17 +161,10 @@ int main(int argc, const char **argv) {
   sig_handler.sa_flags = 0;
   sigaction(SIGINT, &sig_handler, NULL);
 
-#ifdef BINARY_CLIENT
-  std::string role = "client";
-#else
-  std::string role = "server";
-  bool binary = false;
-#endif
-
   char buf[2048];
 
   const char *com_file_or_path = 0;
-  bool verbose = false;
+  bool verbose = false, binary = false;
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
 #ifndef BINARY_CLIENT
@@ -186,7 +177,15 @@ int main(int argc, const char **argv) {
 
   if (!com_file_or_path) usage();
 
-  std::cout << "ArduMon demo " << role << "\n";
+#ifdef BINARY_CLIENT
+  binary = true;
+  std::string role = "binary client";
+#else
+  std::string role = (binary ? "binary" : "text");
+  role += " server";
+#endif
+
+  std::cout << "ArduMon " << role << "\n";
 
   setup(); //call Arduino setup() method defined in demo.h
 
@@ -197,6 +196,7 @@ int main(int argc, const char **argv) {
   if (binary) {
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
+    demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
   } else std::cout << "proceeding in text mode\n";
 #endif
 
@@ -272,46 +272,50 @@ int main(int argc, const char **argv) {
 
   fcntl(com_fileno, F_SETFL, O_NONBLOCK);
 
-  const uint32_t STATUS_MS = 2000;
-  uint32_t ms_to_status = STATUS_MS;
+  const auto log = [&](const char *what, const uint8_t b) {
+    if (verbose) {
+      const std::string pad = b < 10 ? "  " : b < 100 ? " " : "";
+      std::cout << role << " " << what << " " << pad << +b << " 0x" << AM::to_hex(b >> 4) << AM::to_hex(b);
+      if (b >= 32 && b <= 126) std::cout << " '" << b << "'";
+      std::cout << "\n" << std::flush;
+    }
+  };
+
   quit = false;
   while (!quit) {
     
-    int ret = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
-    if (ret < 0) {
+    int nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
+    if (nr < 0) {
       if (errno == ECONNRESET || errno == ENOTCONN) break;
-      else if (errno == EAGAIN) ret = 0; //nonblocking read failed due to nothing available to read
+      else if (errno == EAGAIN) nr = 0; //nonblocking read failed due to nothing available to read
       else { perror(("error reading from " + com_path).c_str()); exit(1); }
     }
 
-    for (size_t i = 0; i < ret; i++) demo_stream.in.put(buf[i]);
+    for (size_t i = 0; i < nr; i++) { demo_stream.in.put(buf[i]); if (verbose) log("rcvd", buf[i]); }
     
     loop(); //call Arduino loop() method defined in demo.h
     
     AM::Error e = am.get_err();
     if (e != AM::Error::NONE) { std::cerr << "ArduMon error: " << am.err_msg(e) << "\n"; am.clear_err(); }
     
-    size_t ns = std::min(demo_stream.out.size(), sizeof(buf));
+    size_t ns = std::min(demo_stream.out.size(), sizeof(buf)), nw = 0;
     if (ns > 0) {
-      for (size_t i = 0; i < ns; i++) buf[i] = demo_stream.out.get();
-      int nw = 0;
+      for (size_t i = 0; i < ns; i++) { buf[i] = demo_stream.out.get(); if (verbose) log("sent", buf[i]); }
       while (ns - nw > 0) {
-        ret = write(com_fileno, buf + nw, ns - nw);
+        int ret = write(com_fileno, buf + nw, ns - nw);
         if (ret < 0) {
           if (errno == ECONNRESET || errno == ENOTCONN) break;
           else if (errno == EAGAIN) ret = 0; //nonblocking write failed
           else { perror(("error writing to " + com_path).c_str()); exit(1); }
         }
         nw += ret;
-        if (ns - nw > 0) {
-          sleep_ms(1);
-          if (verbose && --ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
-        }
+        if (ns - nw > 0) sleep_ms(1);
       }
     }
-    
+
+    if (verbose && (nr > 0 || nw > 0)) status();
+
     sleep_ms(1);
-    if (verbose && --ms_to_status == 0) { status(); ms_to_status = STATUS_MS; }
   }
 
 #ifndef BINARY_CLIENT

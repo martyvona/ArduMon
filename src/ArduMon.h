@@ -556,6 +556,9 @@ public:
   static int strcmp_PP(const FSH* a, const FSH* b) { return strcmp_PP(CCS(a), CCS(b)); }
 #endif
 
+  //convert the low nybble of i to a hex char 0-9A-F
+  static char to_hex(const uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
+
 private:
 
   Stream *stream; //underlying serial stream
@@ -658,11 +661,10 @@ private:
   //otherwise set recv_ptr = recv_buf + 1 and call command handler
   bool handle_bin_command() {
     const uint8_t len = recv_buf[0], code = recv_buf[1];
-    int8_t sum = 0;
-    for (uint8_t i = 0; i < len; i++) sum += static_cast<int8_t>(recv_buf[i]);
+    uint8_t sum = 0; for (uint8_t i = 0; i < len; i++) sum += recv_buf[i];
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
-    arg_count = len - 2;
+    arg_count = len - 2; //don't include length or checksum bytes, but include command code byte in arg count
     if (universal_handler) return (universal_handler)(this);
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
     if (fallback_handler) return (fallback_handler)(this);
@@ -1253,7 +1255,7 @@ private:
   //see get_send_buf_used()
   uint16_t send_buf_used() {
     if (!binary_mode || !with_binary) return 0;
-    return send_read_ptr ? send_buf[0] : send_write_ptr - send_buf + 1; //+1 for checksum
+    return send_read_ptr ? send_buf[0] : (send_write_ptr - send_buf + 1); //+1 for checksum
   }
 
   //see get_recv_buf_used()
@@ -1304,6 +1306,7 @@ private:
 
           if (recv_ptr == recv_buf) { //received length
             if (*recv_ptr < 3) { receiving = ok = fail(Error::BAD_PACKET); }
+            else ++recv_ptr;
           } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
             receiving = false; handling = true;
             ok = handle_bin_command();
@@ -1407,13 +1410,12 @@ private:
 
   bool send_packet_impl() {
     if (!binary_mode || !with_binary) return true;
-    uint16_t len = send_write_ptr - send_buf;
+    const uint16_t len = send_write_ptr - send_buf;
     if (len > 254 || len >= send_buf_sz) return fail(Error::SEND_OVERFLOW); //need 1 byte for checksum
     if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length
-      int8_t sum = 0;
-      for (uint8_t i = 0; i < len; i++) sum += static_cast<int8_t>(send_buf[i]);
-      send_buf[len] = static_cast<uint8_t>(-sum); //set packet checksum
       send_buf[0] = static_cast<uint8_t>(len + 1); //set packet length including checksum
+      uint8_t sum = 0; for (uint8_t i = 0; i < len; i++) sum += send_buf[i];
+      send_buf[len] = static_cast<uint8_t>(-sum); //set packet checksum
       send_write_ptr = 0; //disable writing to send buf
       send_read_ptr = send_buf; //enable reading from send buf
       pump_send_buf();
@@ -1502,9 +1504,6 @@ private:
       default: return c;
     }
   }
-
-  //convert the low nybble of i to a hex char 0-9A-F
-  static char to_hex(const uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
 
   static bool copy_bytes(const void *src, void *dest, const uint8_t num_bytes) {
     for (uint8_t i = 0; i < num_bytes; i++) {

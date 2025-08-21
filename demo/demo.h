@@ -127,7 +127,7 @@ bool help(AM *am) { return am->send_cmds() && am->end_cmd(); }
 bool argc(AM *am) { return am->send(am->argc()) && am->end_cmd(); }
 
 bool gcc(AM *am) {
-  char *name; return am->recv() && am->recv(name) && am->send(am->get_cmd_code(name)) && am->end_cmd();
+  const char *name; return am->recv() && am->recv(&name) && am->send(am->get_cmd_code(name)) && am->end_cmd();
 }
 
 #ifndef BINARY_CLIENT
@@ -363,7 +363,7 @@ uint8_t bc_cmd_code;
 bool bc_recv_gcc(AM *am) {
   am->set_universal_handler(0); //remove ourself as the universal packet handler
   uint16_t code;
-  if (!am->recv(&code)) return false;
+  if (!am->recv(&code) || !am->end_cmd()) return false;
   if (code < 0) print(F("ERROR: "));
   else bc_cmd_code = static_cast<uint8_t>(code);
   print(F("gcc received ")); println(static_cast<int>(code));
@@ -382,17 +382,17 @@ BC_GCC(argc)
 
 //send the argc (argument count) command to the server with three arguments
 bool bc_send_argc(AM *am) {
-  print(F("sending argc (code=")); print(static_cast<int>(bc_cmd_code_argc)); println(F(") with 3 args"));
+  print(F("sending argc (code=")); print(static_cast<int>(bc_cmd_code_argc)); println(F(") with 6 bytes"));
   return am->send(bc_cmd_code_argc) && am->send(static_cast<uint8_t>(42)) && am->send(3.14f) && am->send_packet();
 }
 
 //receive response packet from server for the argc command and verify that the result was 3
 bool bc_recv_argc(AM *am) {
   am->set_universal_handler(0); //remove ourself as the universal packet handler
-  uint8_t argc;
-  if (!am->recv(&argc)) return false;
-  if (argc != 3) print(F("ERROR: "));
-  print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected 3"));
+  uint8_t argc; const uint8_t expected = 6;
+  if (!am->recv(&argc) || !am->end_cmd()) return false;
+  if (argc != expected) print(F("ERROR: "));
+  print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected expected"));
   return true;
 }
 
@@ -422,7 +422,7 @@ bool bc_send_param(AM *am) {
 bool bc_recv_param(AM *am) {
   am->set_universal_handler(0); //remove ourself as the universal packet handler
   float param;
-  if (!am->recv(&param)) return false;
+  if (!am->recv(&param) || !am->end_cmd()) return false;
   if (param != bc_param) print(F("ERROR: "));
   print(F("get_param received ")); print(param); print(F(", expected ")); println(bc_param);
   return true;
@@ -433,7 +433,13 @@ const BCStage *bc_param_B = new BCStage(bc_send_param, bc_recv_param, [](){ bc_p
 
 //TODO more stages
 
-bool bc_done(AM *am) { println(F("binary client done")); return true; }
+bool bc_done(AM *am) {
+  println(F("binary client done"));
+#ifndef ARDUINO
+  quit = true; //quit is defined for native build only in demo.cpp
+#endif
+  return true;
+}
 const BCStage *bc_last = new BCStage(bc_done, 0); //also shows any error from the previous stage
 
 #undef BC_GCC

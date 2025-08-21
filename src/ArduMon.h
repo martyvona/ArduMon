@@ -660,13 +660,16 @@ private:
   //otherwise lookup command code, if not found then BAD_CMD
   //otherwise set recv_ptr = recv_buf + 1 and call command handler
   bool handle_bin_command() {
-    const uint8_t len = recv_buf[0], code = recv_buf[1];
+    const uint8_t len = recv_buf[0];
     uint8_t sum = 0; for (uint8_t i = 0; i < len; i++) sum += recv_buf[i];
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
     arg_count = len - 2; //don't include length or checksum bytes, but include command code byte in arg count
     if (universal_handler) return (universal_handler)(this);
-    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
+    if (len > 2) {
+      const uint8_t code = recv_buf[1];
+      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
+    }
     if (fallback_handler) return (fallback_handler)(this);
     return fail(Error::BAD_CMD);
   }

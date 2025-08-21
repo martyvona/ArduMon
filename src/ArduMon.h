@@ -131,6 +131,9 @@ public:
   //once an error state is set it is sticky; any further errors will not overwrite it until clear_err() is called
   void clear_err() { err = Error::NONE; }
 
+  //type conversion operator: returns true if no error, false if there is an error
+  explicit operator bool() const { return err == Error::NONE; }
+
   //handler_t is a pointer to a function taking pointer to ArduMon object and returning success (true)/fail (false)
   //if the return is false then the handler failed, and should not have called end_cmd()
   //if the return is true then the handler succeded, but may or may not have called end_cmd()

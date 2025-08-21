@@ -134,11 +134,11 @@ public:
   //type conversion operator: returns true if no error, false if there is an error
   explicit operator bool() const { return err == Error::NONE; }
 
-  //handler_t is a pointer to a function taking pointer to ArduMon object and returning success (true)/fail (false)
+  //handler_t is a pointer to a function taking reference to ArduMon object and returning success (true)/fail (false)
   //if the return is false then the handler failed, and should not have called end_cmd()
   //if the return is true then the handler succeded, but may or may not have called end_cmd()
   //if not, the command is considered still being handled until end_cmd() is called
-  typedef bool (*handler_t)(ArduMon*);
+  typedef bool (*handler_t)(ArduMon&);
 
   //get the number of registered commands
   //this will also be the binary code of the next command that will be added with add_cmd() without an explicit code
@@ -668,12 +668,12 @@ private:
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
     arg_count = len - 2; //don't include length or checksum bytes, but include command code byte in arg count
-    if (universal_handler) return (universal_handler)(this);
+    if (universal_handler) return (universal_handler)(*this);
     if (len > 2) {
       const uint8_t code = recv_buf[1];
-      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(this);
+      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(*this);
     }
-    if (fallback_handler) return (fallback_handler)(this);
+    if (fallback_handler) return (fallback_handler)(*this);
     return fail(Error::BAD_CMD);
   }
 
@@ -734,11 +734,11 @@ private:
     const char *cmd = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
 
-    if (universal_handler) return (universal_handler)(this);
+    if (universal_handler) return (universal_handler)(*this);
 
-    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(this);
+    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(*this);
 
-    if (fallback_handler) return (fallback_handler)(this);
+    if (fallback_handler) return (fallback_handler)(*this);
 
     return fail(Error::BAD_CMD);
   }

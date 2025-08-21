@@ -94,9 +94,7 @@ int listen_fileno = -1;
 int com_fileno = -1;
 std::string com_path;
 
-#ifndef BINARY_CLIENT
 bool quit_cmd(AM *am) { quit = true; return true; }
-#endif
 
 void usage() {
 #ifdef BINARY_CLIENT
@@ -189,10 +187,13 @@ int main(int argc, const char **argv) {
 
   setup(); //call Arduino setup() method defined in demo.h
 
-#ifndef BINARY_CLIENT
+  std::cout << "registering quit command\n";
   if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error(&am);
-  std::cout << "added "
-            << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds()) << " commands\n";
+
+  std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
+            << " command handlers\n";
+
+#ifndef BINARY_CLIENT
   if (binary) {
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);

@@ -360,15 +360,20 @@ bool bc_send_gcc(AM *am) {
 
 //receive response packet from server for the gcc command and save the result in bc_cmd_code
 uint8_t bc_cmd_code;
-bool bc_recv_gcc(AM *am) {
+bool bc_recv_gcc_impl(AM *am, uint16_t *ret) {
   am->set_universal_handler(0); //remove ourself as the universal packet handler
   uint16_t code;
   if (!am->recv(&code) || !am->end_cmd()) return false;
-  if (code < 0) print(F("ERROR: "));
-  else bc_cmd_code = static_cast<uint8_t>(code);
+  if (ret) *ret = code;
+  else {
+    if (code < 0) print(F("ERROR: "));
+    else bc_cmd_code = static_cast<uint8_t>(code);
+  }
   print(F("gcc received ")); println(static_cast<int>(code));
   return true;
 }
+
+bool bc_recv_gcc(AM *am) { return bc_recv_gcc_impl(am, 0); }
 
 //this macro encapsulates the boilerplate to add a binary client stage to get a command code
 //#cmd is C-preprocessor token stringification and bc_cmd_code_##cmd is token pasting
@@ -433,14 +438,18 @@ const BCStage *bc_param_B = new BCStage(bc_send_param, bc_recv_param, [](){ bc_p
 
 //TODO more stages
 
-bool bc_done(AM *am) {
+bool bc_recv_done(AM *am) {
   println(F("binary client done"));
 #ifndef ARDUINO
-  quit = true; //quit is defined for native build only in demo.cpp
+  quit = true; //quit is defined in demo.cpp; if *we* are the binary client, this will cause us to terminate
 #endif
-  return true;
+  //native demo.cpp implements a quit command; see if that's present on server, and if so, invoke it to terminate server
+  uint16_t quit_cmd;
+  if (!bc_recv_gcc_impl(am, &quit_cmd)) return false;
+  return quit_cmd < 0 || am->send(static_cast<uint8_t>(quit_cmd)) && am->end_cmd();
 }
-const BCStage *bc_last = new BCStage(bc_done, 0); //also shows any error from the previous stage
+
+const BCStage *bc_last = new BCStage(bc_send_gcc, bc_recv_done, [](){ bc_cmd_name = "quit"; });
 
 #undef BC_GCC
 

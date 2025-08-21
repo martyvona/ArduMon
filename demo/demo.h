@@ -1,3 +1,32 @@
+/**
+ * ArduMon: Yet another Arduino serial command library.
+ *
+ * See https://github.com/martyvona/ArduMon/blob/main/README.md
+ *
+ * This is the main code of the demo.  It can compile for Arduino when included in demo.ino, and it can also compile for
+ * the native host when included in native/demo.cpp.  By default it implements a text mode ArduMon server supporting a
+ * small catalog of demonstration commands, including commands to echo values of various types, as well as a countdown
+ * timer (see am_timer.h).  It can also compile as a binary (not text) server with BINARY=true (see
+ * binary_server/binary_server.ino), and as a binary client with BINARY_CLIENT defined (see
+ * binary_client/binary_client.ino).  The native server build can run in binary or text mode depending on a runtime
+ * command line option, and it can run in binary client mode with the compile time flag -DBINARY_CLIENT.
+ *
+ * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+ * documentation files (the “Software”), to deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+ * WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 #include <ArduMon.h>
 
 #include "am_timer.h"

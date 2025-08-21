@@ -1,20 +1,41 @@
 #ifndef AM_TIMER_H
 #define AM_TIMER_H
 
-//A countdown timer which demonstrates several ways ArduMon commands can send data over time.
-//
-//In synchronous text mode the start_timer command does not end until the timer reaches zero, or the user stops it by
-//hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to the user
-//using VT100 control codes to create a rolling counter that overwrites itself in the terminal without scrolling.
-//
-//In asynchronous text mode the start_timer command ends quickly, but the timer keeps running.  The time can be
-//requested later with the get_time command, and the timer can be stopped with stop_timer.
-//
-//Synchronous and asynchronous binary modes are similar to the corresponding text modes, except the time reports are
-//sent as binary packets instead of text and VT100 control codes.  These packets can either start with a configurable
-//command code or not.  This demonstrates that the receiver, which can be a separate instance of ArduMon running on
-//another processor, can receive response packets either as incoming commands or as generic packets using the ArduMon
-//set_universal_handler() facility.
+/**
+ * ArduMon: Yet another Arduino serial command library.
+ *
+ * See https://github.com/martyvona/ArduMon/blob/main/README.md
+ *
+ * This is a countdown timer which demonstrates several ways ArduMon commands can send data over time.
+ *
+ * In synchronous text mode the start_timer command does not end until the timer reaches zero, or the user stops it by
+ * hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to the
+ * user using VT100 control codes to create a rolling counter that overwrites itself in the terminal without scrolling.
+ * 
+ * In asynchronous text mode the start_timer command ends quickly, but the timer keeps running.  The time can be
+ * requested later with the get_time command, and the timer can be stopped with stop_timer.
+ * 
+ * Synchronous and asynchronous binary modes are similar to the corresponding text modes, except the time reports are
+ * sent as binary packets instead of text and VT100 control codes.  These packets can either start with a configurable
+ * command code or not.  This demonstrates that the receiver, which can be a separate instance of ArduMon running on
+ * another processor, can receive response packets either as incoming commands or as generic packets using the ArduMon
+ * set_universal_handler() facility.
+ *
+ * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+ * documentation files (the “Software”), to deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+ * WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+ * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 template <typename AM> class Timer {
 public:
 

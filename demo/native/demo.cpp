@@ -39,7 +39,9 @@
 #include <thread>
 #include <stdexcept>
 #include <exception>
+#include <stdlib.h>
 #include <unistd.h>
+#include <termios.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <fcntl.h>
@@ -88,8 +90,8 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 #ifndef BINARY_CLIENT
 int listen_fileno = -1;
 #endif
-int comm_fileno = -1;
-std::string comm_path;
+int com_fileno = -1;
+std::string com_path;
 bool quit;
 
 #ifndef BINARY_CLIENT
@@ -98,11 +100,13 @@ bool quit_cmd(AM *am) { quit = true; return true; }
 
 void usage() {
 #ifdef BINARY_CLIENT
-  std::string role_args = "";
+  std::string role = "_client";
+  std::string role_args = "[unix#]";
 #else
+  std::string role = "";
   std::string role_args = "[-b|binary] ";
 #endif
-  std::cerr << "USAGE: demo " << role_args <<  "[-v|--verbose] <comm_file_or_path>\n"; exit(1);
+  std::cerr << "USAGE: demo" << role << "_native [-v|--verbose] " << role_args <<  "<com_file_or_path>\n"; exit(1);
 }
 
 void status() {
@@ -117,7 +121,7 @@ void status() {
   std::cout << "command interpreter " << state << "\n";
   AM::millis_t rtm = am.get_recv_timeout_ms();
   if (rtm > 0) std::cout << "command receive timeout " << rtm << "ms\n";
-  std::cout << "comm file: " << comm_path << "\n";
+  std::cout << "com file: " << com_path << "\n";
   std::cout << std::flush;
 }
 
@@ -125,17 +129,24 @@ bool exists(const std::string path) { struct stat s; return (stat(path.c_str(), 
 
 void sleep_ms(const uint32_t ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
+void cleanup() {
+  if (com_fileno >= 0) {
+    std::cout << "closing " << com_path << "\n";
+    close(com_fileno);
+    com_fileno = -1;
+  }
+#ifndef BINARY_CLIENT
+  if (listen_fileno >= 0) { close(listen_fileno); listen_fileno = -1; }
+  if (exists(com_path)) unlink(com_path.c_str());
+#endif
+}
+
 void terminated() {
   if (std::current_exception()) {
     try { std::rethrow_exception(std::current_exception()); }
     catch (const std::exception& e) { std::cerr << "unhandled exception: " << e.what() << "\n"; }
   }
-  std::cout << "closing " << comm_path << "\n";
-  if (comm_fileno >= 0) close(comm_fileno);
-#ifndef BINARY_CLIENT
-  if (listen_fileno >= 0) close(listen_fileno);
-  if (exists(comm_path)) unlink(comm_path.c_str());
-#endif
+  cleanup();
   exit(1);
 }
 
@@ -143,9 +154,8 @@ void terminate_handler(int s) { terminated(); }
 
 int main(int argc, const char **argv) {
 
-  if (argc < 2) usage();
-
   std::set_terminate(terminated);
+  atexit(cleanup);
 
   struct sigaction sig_handler;
   sig_handler.sa_handler = terminate_handler;
@@ -162,7 +172,7 @@ int main(int argc, const char **argv) {
 
   char buf[2048];
 
-  const char *comm_file_or_path;
+  const char *com_file_or_path = 0;
   bool verbose = false;
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
@@ -171,10 +181,10 @@ int main(int argc, const char **argv) {
 #endif
       if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
       else usage();
-    } else comm_file_or_path = argv[i];
+    } else com_file_or_path = argv[i];
   }
 
-  if (!comm_file_or_path) usage();
+  if (!com_file_or_path) usage();
 
   std::cout << "ArduMon demo " << role << "\n";
 
@@ -190,59 +200,88 @@ int main(int argc, const char **argv) {
   } else std::cout << "proceeding in text mode\n";
 #endif
 
-  if (comm_file_or_path[0] != '/') {
+#ifdef BINARY_CLIENT
+  const bool is_socket = strncmp("unix#", com_file_or_path, 5) == 0;
+  if (is_socket) com_file_or_path += 5;
+#else
+  const bool is_socket = true;
+#endif
+
+  if (com_file_or_path[0] != '/') {
     if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
-    comm_path += buf;
-    comm_path += "/";
-    comm_path += comm_file_or_path;
+    com_path += buf;
+    com_path += "/";
+    com_path += com_file_or_path;
   }
 
   status();
 
+  struct sockaddr_un addr;
+  if (is_socket) {
+    memset(&addr, 0, sizeof(struct sockaddr_un));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, com_path.c_str(), sizeof(addr.sun_path) - 1);
+  }
+
 #ifndef BINARY_CLIENT 
-  if (exists(comm_path)) {
-    std::cout << comm_path << " exists, removing\n";
-    unlink(comm_path.c_str());
+
+  //text or binary server: create com_path as unix socket and listen() on it
+
+  if (exists(com_path)) {
+    std::cout << com_path << " exists, removing\n";
+    unlink(com_path.c_str());
   }
 
   listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (listen_fileno < 0) { perror(("error opeining " + comm_path).c_str()); exit(1); }
+  if (listen_fileno < 0) { perror(("error opeining " + com_path).c_str()); exit(1); }
 
-  struct sockaddr_un addr;
-  memset(&addr, 0, sizeof(struct sockaddr_un));
-  addr.sun_family = AF_UNIX;
-  strncpy(addr.sun_path, comm_path.c_str(), sizeof(addr.sun_path) - 1);
   if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
-    perror(("error binding " + comm_path).c_str()); exit(1);
+    perror(("error binding " + com_path).c_str()); exit(1);
   }
 
-  if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + comm_path).c_str()); exit(1); }
+  if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
 
-  std::cout << "demo server: waiting for connection on " << comm_path << "...\n";
+  std::cout << "demo server: waiting for connection on " << com_path << "...\n";
   std::cout << "example connection:\n";
-  std::cout << "minicom -D unix#" << comm_path << "\n";
+  if (binary) std::cout << "demo_client_native unix#" << com_path << "\n";
+  else std::cout << "minicom -D unix#" << com_path << "\n";
   std::cout << std::flush;
 
-  comm_fileno = accept(listen_fileno, NULL, NULL);
-  if (comm_fileno < 0) { perror(("error accepting connection on " + comm_path).c_str()); exit(1); }
-  std::cout << "got connection on " << comm_path << "\n";
-#else
-  comm_fileno = open(comm_path.c_str(), O_RDWR);
-  if (comm_fileno < 0) { perror(("error opening " + comm_path).c_str()); exit(1); }
+  com_fileno = accept(listen_fileno, NULL, NULL);
+  if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
+  std::cout << "got connection on " << com_path << "\n";
+
+#else //binary client
+
+  if (is_socket) { //com_path is a UNIX socket (command line option started with "unix#")
+    com_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (connect(com_fileno, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+      perror(("error connecting to " + com_path).c_str()); exit(1);
+    }
+  } else { //com_path is a serial port file, not a UNIX socket
+    com_fileno = open(com_path.c_str(), O_RDWR | O_NOCTTY);
+    if (com_fileno < 0) { perror(("error opening " + com_path).c_str()); exit(1); }
+    struct termios t;
+    if (tcgetattr(com_fileno, &t) != 0) { perror(("error getting attribs on " + com_path).c_str()); exit(1); }
+    t.c_iflag &= ~(IXON | IXOFF | IXANY); //disable software flow control (XON/XOFF)
+    t.c_cflag &= ~CRTSCTS; // disable hardware flow control (RTS/CTS)
+    if (tcsetattr(com_fileno, TCSANOW, &t) != 0) { perror(("error setting attribs on " + com_path).c_str()); exit(1); }
+  }
+
 #endif
 
-  fcntl(comm_fileno, F_SETFL, O_NONBLOCK);
+  fcntl(com_fileno, F_SETFL, O_NONBLOCK);
 
   const uint32_t STATUS_MS = 2000;
   uint32_t ms_to_status = STATUS_MS;
   quit = false;
   while (!quit) {
     
-    int ret = read(comm_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
+    int ret = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
     if (ret < 0) {
       if (errno == ECONNRESET || errno == ENOTCONN) break;
       else if (errno == EAGAIN) ret = 0; //nonblocking read failed due to nothing available to read
-      else { perror(("error reading from " + comm_path).c_str()); exit(1); }
+      else { perror(("error reading from " + com_path).c_str()); exit(1); }
     }
 
     for (size_t i = 0; i < ret; i++) demo_stream.in.put(buf[i]);
@@ -257,11 +296,11 @@ int main(int argc, const char **argv) {
       for (size_t i = 0; i < ns; i++) buf[i] = demo_stream.out.get();
       int nw = 0;
       while (ns - nw > 0) {
-        ret = write(comm_fileno, buf + nw, ns - nw);
+        ret = write(com_fileno, buf + nw, ns - nw);
         if (ret < 0) {
           if (errno == ECONNRESET || errno == ENOTCONN) break;
           else if (errno == EAGAIN) ret = 0; //nonblocking write failed
-          else { perror(("error writing to " + comm_path).c_str()); exit(1); }
+          else { perror(("error writing to " + com_path).c_str()); exit(1); }
         }
         nw += ret;
         if (ns - nw > 0) {
@@ -276,14 +315,14 @@ int main(int argc, const char **argv) {
   }
 
 #ifndef BINARY_CLIENT
-  if (!quit) std::cout << "lost connection on " << comm_path << "\n";
+  if (!quit) std::cout << "lost connection on " << com_path << "\n";
 #endif
 
-  std::cout << "closing " << comm_path << "\n";
-  close(comm_fileno); comm_fileno = -1;
+  std::cout << "closing " << com_path << "\n";
+  close(com_fileno); com_fileno = -1;
 #ifndef BINARY_CLIENT
   close(listen_fileno); listen_fileno = -1;
-  unlink(comm_path.c_str());
+  unlink(com_path.c_str());
 #endif
 
   exit(0);

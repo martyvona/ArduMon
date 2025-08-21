@@ -187,33 +187,31 @@ int main(int argc, const char **argv) {
 
   setup(); //call Arduino setup() method defined in demo.h
 
+#ifndef BINARY_CLIENT
+  const bool is_socket = true;
+
   std::cout << "registering quit command\n";
   if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error(am);
 
   std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
             << " command handlers\n";
 
-#ifndef BINARY_CLIENT
   if (binary) {
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
     demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
   } else std::cout << "proceeding in text mode\n";
-#endif
-
-#ifdef BINARY_CLIENT
+#else
   const bool is_socket = strncmp("unix#", com_file_or_path, 5) == 0;
   if (is_socket) com_file_or_path += 5;
-#else
-  const bool is_socket = true;
-#endif
+#endif //BINARY_CLIENT
 
   if (com_file_or_path[0] != '/') {
     if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
     com_path += buf;
     com_path += "/";
     com_path += com_file_or_path;
-  }
+  } else com_path = com_file_or_path;
 
   status();
 

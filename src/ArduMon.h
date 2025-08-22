@@ -118,8 +118,10 @@ public:
   }
 
   ArduMon(Stream *s, const bool binary = !with_text) : stream(s) {
-    memset(cmds, 0, sizeof(cmds));
     set_binary_mode_impl(binary, true, false);
+    set_universal_handler(0);
+    set_fallback_handler(0);
+    memset(cmds, 0, sizeof(cmds));
   }
 
 #ifdef ARDUINO
@@ -139,6 +141,12 @@ public:
   //if the return is true then the handler succeded, but may or may not have called end_cmd()
   //if not, the command is considered still being handled until end_cmd() is called
   typedef bool (*handler_t)(ArduMon&);
+
+  //functioniod (https://isocpp.org/wiki/faq/pointers-to-members#functionoids) alternative to handler_t
+  struct Runnable {
+    virtual bool run(ArduMon&) = 0;
+    virtual ~Runnable() { }
+  };
 
   //get the number of registered commands
   //this will also be the binary code of the next command that will be added with add_cmd() without an explicit code
@@ -173,25 +181,48 @@ public:
   //this can be useful e.g. in binary mode to handle received packets where byte two is not necessarily a command code
   //set handler to 0 to remove any existing universal handler (and thus re-enable handlers added with add_cmd())
   //returns the previous universal handler, if any
+  //if there was previously a universal Runnable it will be replaced but not returned
   handler_t set_universal_handler(const handler_t handler) {
-    const handler_t ret = universal_handler;
+    const handler_t ret = (flags&F_UNIV_RUNNABLE) ? 0 : universal_handler;
     universal_handler = handler;
+    flags &= ~F_UNIV_RUNNABLE;
     return ret;
   }
 
-  handler_t get_universal_handler() { return universal_handler; }
+  handler_t get_universal_handler() { return (flags&F_UNIV_RUNNABLE) ? 0 : universal_handler; }
+
+  //alternative to set_universal_handler() but using a Runnable instead of a handler_t function pointer
+  Runnable* set_universal_runnable(Runnable* const runnable) {
+    Runnable* const ret = (flags&F_UNIV_RUNNABLE) ? universal_runnable : 0;
+    universal_runnable = runnable;
+    flags |= F_UNIV_RUNNABLE;
+    return ret;
+  }
+
+  Runnable* get_universal_runnable() { return (flags&F_UNIV_RUNNABLE) ? universal_runnable : 0; }
 
   //set a fallback command handler that will handle received commands
   //that did not have a command name (command code in binary mode) matching any handler added with add_cmd()
   //set handler to 0 to remove any existing fallback handler
   //returns the previous fallback handler, if any
   handler_t set_fallback_handler(const handler_t handler) {
-    const handler_t ret = fallback_handler;
+    const handler_t ret = (flags&F_FALLBACK_RUNNABLE) ? 0 : fallback_handler;
     fallback_handler = handler;
+    flags &= ~F_FALLBACK_RUNNABLE;
     return ret;
   }
 
-  handler_t get_fallback_handler() { return fallback_handler; }
+  handler_t get_fallback_handler() { return (flags&F_FALLBACK_RUNNABLE) ? 0 : fallback_handler; }
+
+  //alternative to set_fallback_handler() but using a Runnable instead of a handler_t function pointer
+  Runnable* set_fallback_runnable(Runnable* const runnable) {
+    Runnable* const ret = (flags&F_UNIV_RUNNABLE) ? fallback_runnable : 0;
+    fallback_runnable = runnable;
+    flags |= F_FALLBACK_RUNNABLE;
+    return ret;
+  }
+
+  Runnable* get_fallback_runnable() { return (flags&F_UNIV_RUNNABLE) ? fallback_runnable : 0; }
 
   //add a command; returns true on success
   bool add_cmd(const handler_t handler, const char *name, const uint8_t code, const char *description = 0) {
@@ -574,7 +605,9 @@ private:
     F_TXT_PROMPT_PROGMEM = 1 << 2, //text mode prompt string is in program memory on AVR
     F_RECEIVING = 1 << 3, //received the first but not yet last byte of a command
     F_HANDLING = 1 << 4, //a command handler is currently running
-    F_SPACE_PENDING = 1 << 5 //a space should be sent before the next returned value in text mode
+    F_SPACE_PENDING = 1 << 5, //a space should be sent before the next returned value in text mode
+    F_UNIV_RUNNABLE = 1 << 6, //universal_handler is a runnable
+    F_FALLBACK_RUNNABLE = 1 << 7 //fallback_handler is a runnable
   };
   uint8_t flags = 0;
 
@@ -604,7 +637,8 @@ private:
   //block for up to this long in pump_send_buf() in binary mode
   millis_t send_wait_ms = 0;
 
-  handler_t universal_handler = 0, fallback_handler = 0;
+  union { handler_t universal_handler; Runnable* universal_runnable; };
+  union { handler_t fallback_handler; Runnable* fallback_runnable; };
 
   uint8_t n_cmds = 0;
 
@@ -668,12 +702,14 @@ private:
     if (sum != 0) return fail(Error::BAD_PACKET);
     recv_ptr = recv_buf + 1; //skip over length
     arg_count = len - 2; //don't include length or checksum bytes, but include command code byte in arg count
-    if (universal_handler) return (universal_handler)(*this);
+    if ((flags&F_UNIV_RUNNABLE) && universal_runnable) return universal_runnable->run(*this);
+    if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this);
     if (len > 2) {
       const uint8_t code = recv_buf[1];
       for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(*this);
     }
-    if (fallback_handler) return (fallback_handler)(*this);
+    if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this);
+    if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this);
     return fail(Error::BAD_CMD);
   }
 
@@ -734,11 +770,13 @@ private:
     const char *cmd = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
 
-    if (universal_handler) return (universal_handler)(*this);
+    if ((flags&F_UNIV_RUNNABLE) && universal_runnable) return universal_runnable->run(*this);
+    if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this);
 
     for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(*this);
 
-    if (fallback_handler) return (fallback_handler)(*this);
+    if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this);
+    if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this);
 
     return fail(Error::BAD_CMD);
   }

@@ -305,44 +305,50 @@ void add_cmds() {
 
 #ifdef BINARY_CLIENT
 
+//each BCStage we instantiate will automatically append itself to a linked list
+//then in the Arduino loop() method we will advance current_bc_stage through the list
 class BCStage;
-BCStage *first_bc_stage, *last_bc_stage, *current_bc_stage;
+BCStage *first_bc_stage = 0, *last_bc_stage = 0, *current_bc_stage = 0;
 
-class BCStage {
+class BCStage : public AM::Runnable {
 public:
 
-  typedef void (*callback_t)(void);
-
-  BCStage(AM::handler_t _send, AM::handler_t _recv, callback_t _before = 0, callback_t _after = 0) :
-    send(_send), recv(_recv), before(_before), after(_after) {
+  BCStage() {
     if (!first_bc_stage) first_bc_stage = current_bc_stage = this;
     if (last_bc_stage) last_bc_stage->next = this;
     last_bc_stage = this;
   }
 
   //returns pointer to next stage when done, else null
-  BCStage * update() {
+  BCStage* update() {
     if (!started) { start(); return 0; }
     if (done) return next;
-    if (am.get_universal_handler() == recv) return 0; //still running
-    if (!done && after) after(); //run after callback, if any, once when transitioning from running to done
+    if (am.get_universal_runnable() == this) return 0; //still running
     done = true;
     return next;
   }
 
+  bool run(AM& am) {
+    am.set_universal_runnable(0);
+    const bool ret = recv();
+    if (!ret) show_error(am);
+    return ret;
+  }
+
+protected:
+
+  virtual bool send() = 0;
+  virtual bool recv() = 0;
+
 private:
 
-  const callback_t before, after;
-  const AM::handler_t send, recv;
   BCStage *next;
   bool started = false, done = false;
 
   void start() {
-    show_error(am); //show and clear any error from previous stage
-    if (before) before(); //run before callback, if any
     started = true;
-    am.set_universal_handler(recv); //install receive handler, if any
-    if (send && !send(am)) show_error(am); //invoke send method, if any
+    am.set_universal_runnable(this); //install ourself as receive runnable
+    if (!send()) show_error(am);
   }
 };
 
@@ -351,105 +357,98 @@ private:
 //another approach is for the server to implement a "gcc" command that will return the code for a given command name
 //and register the gcc command with a well-known command code, e.g. 0; this latter approach is demonstrated here
 
-//send the gcc (get command code) command to the server with argument bc_cmd_name
-const char *bc_cmd_name;
-bool bc_send_gcc(AM &am) {
-  print(F("sending gcc (code=0) for cmd name ")); println(bc_cmd_name);
-  return am.send(static_cast<uint8_t>(0)) && am.send(bc_cmd_name) && am.send_packet();
-}
-
-//receive response packet from server for the gcc command and save the result in bc_cmd_code
-uint8_t bc_cmd_code;
-bool bc_recv_gcc_impl(AM &am, uint16_t *ret) {
-  am.set_universal_handler(0); //remove ourself as the universal packet handler
-  uint16_t code;
-  if (!am.recv(&code) || !am.end_cmd()) return false;
-  if (ret) *ret = code;
-  else {
-    if (code < 0) print(F("ERROR: "));
-    else bc_cmd_code = static_cast<uint8_t>(code);
+class BCStage_gcc : public BCStage {
+public:
+  const char * const cmd_name;
+  BCStage_gcc(const char *_cmd_name) : cmd_name(_cmd_name) {}
+  uint16_t has_cmd() { return cmd_code >= 0; }
+  uint8_t code() { return static_cast<uint8_t>(cmd_code); }
+protected:
+  bool send() {
+    print(F("sending gcc (code=0) for cmd ")); println(cmd_name);
+    return am.send(static_cast<uint8_t>(0)) && am.send(cmd_name) && am.send_packet();
   }
-  print(F("gcc received ")); println(static_cast<int>(code));
-  return true;
-}
+  bool recv() {
+    if (!am.recv(&cmd_code) || !am.end_cmd()) return false;
+    print(F("gcc received ")); println(static_cast<int>(cmd_code));
+    return true;
+  }
+private:
+  int16_t cmd_code = -1;
+};
 
-bool bc_recv_gcc(AM &am) { return bc_recv_gcc_impl(am, 0); }
+BCStage_gcc bc_gcc_argc("argc");
 
-//this macro encapsulates the boilerplate to add a binary client stage to get a command code
-//#cmd is C-preprocessor token stringification and bc_cmd_code_##cmd is token pasting
-#define BC_GCC(cmd) \
-uint8_t bc_cmd_code_##cmd; \
-const BCStage *bc_gcc_##cmd = new BCStage(bc_send_gcc, bc_recv_gcc, \
-                                          [](){ bc_cmd_name = #cmd; }, [](){ bc_cmd_code_##cmd = bc_cmd_code; });
+class BCStage_argc : public BCStage {
+protected:
+  bool send() {
+    print(F("sending argc (code=")); print(static_cast<int>(bc_gcc_argc.code())); println(F(") with 6 bytes"));
+    return am.send(bc_gcc_argc.code()) && am.send(static_cast<uint8_t>(42)) && am.send(3.14f) && am.send_packet();
+  }
+  bool recv() {
+    uint8_t argc; const uint8_t expected = 6;
+    if (!am.recv(&argc) || !am.end_cmd()) return false;
+    if (argc != expected) print(F("ERROR: "));
+    print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected expected"));
+    return true;
+  }
+};
 
-//get command code for the "argc" command and save it in bc_cmd_code_argc
-BC_GCC(argc)
+BCStage_argc bc_argc;
 
-//send the argc (argument count) command to the server with three arguments
-bool bc_send_argc(AM &am) {
-  print(F("sending argc (code=")); print(static_cast<int>(bc_cmd_code_argc)); println(F(") with 6 bytes"));
-  return am.send(bc_cmd_code_argc) && am.send(static_cast<uint8_t>(42)) && am.send(3.14f) && am.send_packet();
-}
+BCStage_gcc bc_gcc_sfp("sfp");
+BCStage_gcc bc_gcc_gfp("gfp");
 
-//receive response packet from server for the argc command and verify that the result was 3
-bool bc_recv_argc(AM &am) {
-  am.set_universal_handler(0); //remove ourself as the universal packet handler
-  uint8_t argc; const uint8_t expected = 6;
-  if (!am.recv(&argc) || !am.end_cmd()) return false;
-  if (argc != expected) print(F("ERROR: "));
-  print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected expected"));
-  return true;
-}
+class BCStage_sfp_gfp : public BCStage {
+public:
+  BCStage_sfp_gfp(const float _val) : val(_val) {}
+protected:
+  bool send() {
+    print(F("sending sfp (code=")); print(static_cast<int>(bc_gcc_sfp.code())); print(F(") value=")); println(val);
+    if (!am.send(bc_gcc_sfp.code()) || !am.send(val) || !am.send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
+    
+    print(F("sending gfp (code=")); print(static_cast<int>(bc_gcc_gfp.code())); println(F(")"));
+    return am.send(bc_gcc_gfp.code()) && am.send_packet(); //1 + 1 + 1 = 3 bytes
+    
+    //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
+    //so the above sends all block until the data can be put into the client's serial send buffer
+    //thus, we just rapidly sent two packets totalling 7 + 3 = 10 bytes, which should be OK because the
+    //server's serial receive buffer should be at least 64 bytes; now we wait for a response to establish flow control
+  }
+  bool recv() {
+    float param;
+    if (!am.recv(&param) || !am.end_cmd()) return false;
+    if (param != val) print(F("ERROR: "));
+    print(F("gfp received ")); print(param); print(F(", expected ")); println(val);
+    return true;
+  }
+private:
+  const float val;
+};
 
-const BCStage *bc_argc = new BCStage(bc_send_argc, bc_recv_argc);
-
-//get command code for the "sfp" command and save it in bc_cmd_code_sfp, and similar for "gfp"
-BC_GCC(sfp)
-BC_GCC(gfp)
-
-//send the sfp (set float param) command to the server with argument bc_param
-//then send the gfp (get float param) command
-float bc_param = 0.0;
-bool bc_send_param(AM &am) {
-  print(F("sending sfp (code=")); print(static_cast<int>(bc_cmd_code_sfp)); print(F(") value=")); println(bc_param);
-  if (!am.send(bc_cmd_code_sfp) || !am.send(bc_param) || !am.send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
-
-  print(F("sending gfp (code=")); print(static_cast<int>(bc_cmd_code_gfp)); println(F(")"));
-  return am.send(bc_cmd_code_gfp) && am.send_packet(); //1 + 1 + 1 = 3 bytes
-
-  //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
-  //so the above sends all block until the data can be put into the client's serial send buffer
-  //thus, we just rapidly sent two packets totalling 7 + 3 = 10 bytes, which should be OK because the
-  //server's serial receive buffer should be at least 64 bytes; now we wait for a response to establish flow control
-}
-
-//receive response packet from server for the gfp command and verify that the result was bc_param
-bool bc_recv_param(AM &am) {
-  am.set_universal_handler(0); //remove ourself as the universal packet handler
-  float param;
-  if (!am.recv(&param) || !am.end_cmd()) return false;
-  if (param != bc_param) print(F("ERROR: "));
-  print(F("get_param received ")); print(param); print(F(", expected ")); println(bc_param);
-  return true;
-}
-
-const BCStage *bc_param_A = new BCStage(bc_send_param, bc_recv_param, [](){ bc_param = 3.14; });
-const BCStage *bc_param_B = new BCStage(bc_send_param, bc_recv_param, [](){ bc_param = -2.71; });
+BCStage_sfp_gfp bc_sfp_gfp_pi(3.14);
+BCStage_sfp_gfp bc_sfp_gfp_minus_e(-2.71);
 
 //TODO more stages
 
-bool bc_recv_done(AM &am) {
-  println(F("binary client done"));
-#ifndef ARDUINO
-  quit = true; //quit is defined in demo.cpp; if *we* are the binary client, this will cause us to terminate
-#endif
-  //native demo.cpp implements a quit command; see if that's present on server, and if so, invoke it to terminate server
-  uint16_t quit_cmd;
-  if (!bc_recv_gcc_impl(am, &quit_cmd)) return false;
-  return quit_cmd < 0 || am.send(static_cast<uint8_t>(quit_cmd)) && am.end_cmd();
-}
+BCStage_gcc bc_gcc_quit("quit");
 
-const BCStage *bc_last = new BCStage(bc_send_gcc, bc_recv_done, [](){ bc_cmd_name = "quit"; });
+class BCStage_done : public BCStage {
+protected:
+  bool send() {
+    println(F("binary client done"));
+#ifndef ARDUINO
+    quit = true; //quit is defined in demo.cpp; if we are the binary client, this will cause us to terminate
+#endif
+    //native demo.cpp implements quit command; see if that's present on server, and if so, invoke it to terminate server
+    if (!bc_gcc_quit.has_cmd()) return true;
+    print(F("sending quit (code=")); print(static_cast<int>(bc_gcc_quit.code())); println(F(")"));
+    return am.send(bc_gcc_quit.code()) && am.end_cmd();
+  }
+  bool recv() { return true; }
+};
+
+BCStage_done bc_done;
 
 #undef BC_GCC
 
@@ -488,7 +487,7 @@ void loop() {
 #ifndef BINARY_CLIENT
   timer.tick(am); //text or binary server
 #else //binary client: crank the state machine
-  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) current_bc_stage = next;
+  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) { current_bc_stage = next; }
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 }

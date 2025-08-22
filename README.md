@@ -22,7 +22,7 @@ ArduMon also
 * can be used to implement both the "server" and the "client" side of a binary communication link
 * supports registering both function pointer and [functionoid](https://isocpp.org/wiki/faq/pointers-to-members#functionoids) command handlers
 * allows handlers that return nothing, a single response, or an arbitrary amount of data over time
-* makes it convenient to use VT100/ANSI control codes to create a terminal UI with styled text and in-place updating
+* makes it convenient to use VT100/ANSI control codes to create a UI with styled text and in-place updating
 * is 8 bit AVR compatible
 * supports AVR, ESP32, and STM32 Arduino compatible boards
 * can optionally also be built for PC: OS X, Linux, [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install)

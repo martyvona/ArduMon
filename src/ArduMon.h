@@ -70,7 +70,7 @@ public:
 //
 //with_binary = false saves ~700 bytes on AVR
 //with_text = false saves ~8k bytes on AVR
-template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 256, uint16_t send_buf_sz = 256,
+template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 128, uint16_t send_buf_sz = 128,
           bool with_int64 = true, bool with_float = true, bool with_double = true,
           bool with_binary = true, bool with_text = true>
 class ArduMon {

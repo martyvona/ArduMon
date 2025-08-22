@@ -267,22 +267,28 @@ where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttyS
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
 
-### Upload the Demo for ESP32 CYD (Cheap Yellow Display)
+### Upload the Demo for ESP32
 
-Attach the CYD by USB. Note that some CYD variants have a [USB-C port which does not work properly](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#the-usb-c-port-doesnt-work) with USB C-C cables; try a USB A-C cable instead.
-
-You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connected to port P1 on the CYD, push the reset button on the board, then the boot button, then release reset, then release boot.  However, there are several caveats with this method.  The [ESP32-2432S028 CYD with both USB micro and USB C ports](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#my-cyd-has-two-usb-ports) appears to have a design flaw where the on-board CH340C USB to serial chip holds the RX line high even when USB is not connected (this also probably applies to the [original CYD with only USB micro](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#what-is-a-cheap-yellow-display-cyd)).  This can be corrected with a board modification to create a [diode-OR](https://en.wikipedia.org/wiki/Diode-or_circuit) as shown in [this photo](./photos/CYD-diode-or.jpg), though this requires some tricky soldering and would be challenging without a microscope: remove the 100 Ohm resistor connected to the RX pin on P1 and replace it with any standard signal diode, e.g. 1N4148, with the cathode attached to the RX pin on P1; cut the trace leading to pin 2 on the CH340C right next to the IC, then bridge that cut with another of the same type of diode, with its cathode attached to the CH340C.  This diode arrangement also solves a secondary issue, which is that the P1 RX pin is not 5V tolerant, since the ESP32 input pin is itself not 5V tolerant.  The diode-OR [resolves this](https://forum.arduino.cc/t/5v-to-3-3v-logic-signal-diodes-to-drop-voltage/372343/9) by relying on the internal pullup on the ESP32 RX pin to bring it high.  Some other CYD variants have a 0 Ohm resistor installed instead of the 100 Ohm one on the P1 RX pin, and probably some other changes as well.  Those *may* work unmodified, but they likely still have the issue with applying 5V to RX (which may work in practice, but is out of spec).  So, either use a [USB-to-serial](./photos/CYD-3_3V-adapter.jpg) adapter [capable of 3.3V](https://www.amazon.com/dp/B087RJ7X32), or put a [diode in-line](./photos/CYD-inline-diode.jpg) with its anode attached to the P1 RX pin.
+#### Arduino Nano ESP32
 
 Text demo:
 
 ```
 cd demo
-./upload-esp32.sh esp32:esp32:esp32 PORT
+./upload-esp32.sh arduino:esp32:nano_nora PORT
 ```
 
 where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
+
+#### Cheap Yellow Display (CYD)
+
+Attach the CYD by USB. Note that some CYD variants have a [USB-C port which does not work properly](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#the-usb-c-port-doesnt-work) with USB C-C cables; try a USB A-C cable instead.
+
+You can also attach the CYD to a USB-to-serial adapter with +5V/TX/RX/GND connected to port P1 on the CYD, push the reset button on the board, then the boot button, then release reset, then release boot.  However, there are several caveats with this method.  The [ESP32-2432S028 CYD with both USB micro and USB C ports](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#my-cyd-has-two-usb-ports) appears to have a design flaw where the on-board CH340C USB to serial chip holds the RX line high even when USB is not connected (this also probably applies to the [original CYD with only USB micro](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/cyd.md#what-is-a-cheap-yellow-display-cyd)).  This can be corrected with a board modification to create a [diode-OR](https://en.wikipedia.org/wiki/Diode-or_circuit) as shown in [this photo](./photos/CYD-diode-or.jpg), though this requires some tricky soldering and would be challenging without a microscope: remove the 100 Ohm resistor connected to the RX pin on P1 and replace it with any standard signal diode, e.g. 1N4148, with the cathode attached to the RX pin on P1; cut the trace leading to pin 2 on the CH340C right next to the IC, then bridge that cut with another of the same type of diode, with its cathode attached to the CH340C.  This diode arrangement also solves a secondary issue, which is that the P1 RX pin is not 5V tolerant, since the ESP32 input pin is itself not 5V tolerant.  The diode-OR [resolves this](https://forum.arduino.cc/t/5v-to-3-3v-logic-signal-diodes-to-drop-voltage/372343/9) by relying on the internal pullup on the ESP32 RX pin to bring it high.  Some other CYD variants have a 0 Ohm resistor installed instead of the 100 Ohm one on the P1 RX pin, and probably some other changes as well.  Those *may* work unmodified, but they likely still have the issue with applying 5V to RX (which may work in practice, but is out of spec).  So, either use a [USB-to-serial](./photos/CYD-3_3V-adapter.jpg) adapter [capable of 3.3V](https://www.amazon.com/dp/B087RJ7X32), or put a [diode in-line](./photos/CYD-inline-diode.jpg) with its anode attached to the P1 RX pin.
+
+Then follow the same procedure as for [Arduino Nano ESP32](#arduino-nano-esp32) except use FQBN `esp32:esp32:esp32`.
 
 ### Upload the Demo for STM32
 

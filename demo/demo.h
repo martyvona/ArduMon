@@ -110,9 +110,6 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 
 #ifndef BASELINE_MEM
 AM am(&AM_STREAM, BINARY);
-#ifndef BINARY_CLIENT
-Timer<AM> timer;
-#endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 
 void show_error(AM& am) {
@@ -122,6 +119,10 @@ void show_error(AM& am) {
 
 /* server command handlers ********************************************************************************************/
 
+#ifndef BINARY_CLIENT
+
+Timer<AM> timer;
+
 bool help(AM &am) { return am.send_cmds() && am.end_cmd(); }
 
 bool argc(AM &am) { return am.send(am.argc()) && am.end_cmd(); }
@@ -129,16 +130,6 @@ bool argc(AM &am) { return am.send(am.argc()) && am.end_cmd(); }
 bool gcc(AM &am) {
   const char *name; return am.recv() && am.recv(&name) && am.send(am.get_cmd_code(name)) && am.end_cmd();
 }
-
-#ifndef BINARY_CLIENT
-bool start_timer(AM &am) { return timer.start(am); }
-bool stop_timer(AM &am) { return timer.stop(am) && am.end_cmd(); }
-bool get_timer(AM &am) { return timer.get_time(am) && am.end_cmd(); }
-#else
-bool start_timer(AM &am) { return true; }
-bool stop_timer(AM &am) { return true; }
-bool get_timer(AM &am) { return true; }
-#endif
 
 template <typename T> bool echo(AM &am) {
   //the first recv() skips over the command token itself
@@ -201,51 +192,39 @@ bool echo_multiple(AM &am) {
   
   const size_t len = strlen(format);
   for (size_t i = 0; i + 2 < len; i += 3) {
+
     const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
-    
+
     if (strcmp(type, "chr") == 0) {
-      char v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      char v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "str") == 0) {
-      const char* v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      const char* v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "bll") == 0) {
-      bool v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      bool v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "u08") == 0) {
-      uint8_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      uint8_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "s08") == 0) {
-      int8_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      int8_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "u16") == 0) {
-      uint16_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      uint16_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "s16") == 0) {
-      int16_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      int16_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "u32") == 0) {
-      uint32_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      uint32_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "s32") == 0) {
-      int32_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      int32_t v; if (!am.recv(&v) || !am.send(v)) return false;
 #ifdef WITH_INT64
     } else if (strcmp(type, "u64") == 0) {
-      uint64_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      uint64_t v; if (!am.recv(&v) || !am.send(v)) return false;
     } else if (strcmp(type, "s64") == 0) {
-      int64_t v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      int64_t v; if (!am.recv(&v) || !am.send(v)) return false;
 #endif
 #ifdef WITH_FLOAT
     } else if (strcmp(type, "f32") == 0) {
-      float v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      float v; if (!am.recv(&v) || !am.send(v)) return false;
 #ifdef WITH_DOUBLE
     } else if (strcmp(type, "f64") == 0) {
-      double v;
-      if (!am.recv(&v) || !am.send(v)) return false;
+      double v; if (!am.recv(&v) || !am.send(v)) return false;
 #endif
 #endif
     }
@@ -263,14 +242,14 @@ void add_cmds() {
   am.set_txt_prompt(F("demo>"));
   am.set_txt_echo(true);
 
-#define ADD_CMD(func, name, desc) if (!am.add_cmd(func, F(name), F(desc))) show_error(am);
+#define ADD_CMD(func, name, desc) if (!am.add_cmd((func), F(name), F(desc))) show_error(am);
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
   ADD_CMD(argc, "argc", "show arg count");
-  ADD_CMD(start_timer, "st", "hours minutes seconds [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
-  ADD_CMD(stop_timer, "ot", "stop timer");
-  ADD_CMD(get_timer, "gt", "get timer");
+  ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
+  ADD_CMD(&(timer.stop_cmd), "to", "stop timer");
+  ADD_CMD(&(timer.get_cmd), "tg", "get timer");
   ADD_CMD(echo_char, "ec", "echo char");
   ADD_CMD(echo_str, "es", "echo str");
   ADD_CMD(echo_bool, "eb", "echo bool");
@@ -297,6 +276,8 @@ void add_cmds() {
 #undef ADD_CMD
 }
 #endif //BASELINE_MEM
+
+#endif //BINARY_CLIENT
 
 /* binary client state machine ****************************************************************************************/
 

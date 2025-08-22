@@ -8,12 +8,12 @@
  *
  * This is a countdown timer which demonstrates several ways ArduMon commands can send data over time.
  *
- * In synchronous text mode the start_timer command does not end until the timer reaches zero, or the user stops it by
- * hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to the
+ * In synchronous text mode the Timer::start() command does not end until the timer reaches zero, or the user stops it
+ * by hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to the
  * user using VT100 control codes to create a rolling counter that overwrites itself in the terminal without scrolling.
  * 
- * In asynchronous text mode the start_timer command ends quickly, but the timer keeps running.  The time can be
- * requested later with the get_time command, and the timer can be stopped with stop_timer.
+ * In asynchronous text mode the Timer::start() command ends quickly, but the timer keeps running.  The time can be
+ * requested later with the Timer::get() command, and the timer can be stopped with Timer::stop().
  * 
  * Synchronous and asynchronous binary modes are similar to the corresponding text modes, except the time reports are
  * sent as binary packets instead of text and VT100 control codes.  These packets can either start with a configurable
@@ -38,6 +38,15 @@
  */
 template <typename AM> class Timer {
 public:
+
+  struct Cmd : public AM::Runnable { Timer& tm; Cmd(Timer &_tm) : tm(_tm) {} };
+  struct StartCmd : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.start(am); } };
+  struct StopCmd  : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.stop(am); } };
+  struct GetCmd   : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.get(am); } };
+
+  StartCmd start_cmd; StopCmd stop_cmd; GetCmd get_cmd;
+
+  Timer() : start_cmd(*this), stop_cmd(*this), get_cmd(*this) {}
 
   bool start(AM &am) {
 
@@ -85,14 +94,14 @@ public:
     elapsed_ms = 0;
     running = true;
 
-    if (async) am.end_cmd(); else get_time(am, start_ms);
+    if (async) am.end_cmd(); else get(am, start_ms);
 
     return true;
   }
 
-  bool stop(AM &am) { running = false; return true; }
+  bool stop(AM &am) { running = false; return am.end_cmd(); }
 
-  bool get_time(AM &am, const uint64_t now) {
+  bool get(AM &am, const uint64_t now) {
     last_send_ms = now;
     if (am.is_txt_mode()) {
       const uint8_t h = remaining_ms / (3600 * 1000ul);
@@ -115,7 +124,7 @@ public:
     }
   }
 
-  bool get_time(AM &am) { return get_time(am, millis()); }
+  bool get(AM &am) { return get(am, millis()) && am.end_cmd(); }
 
   bool is_running() { return running; };
 
@@ -126,7 +135,7 @@ public:
     remaining_ms = elapsed_ms <= total_ms ? total_ms - elapsed_ms : 0;
     if (remaining_ms == 0 || (!async && am.is_txt_mode() && am.get_key() != 0)) running = false;
     if (!async) {
-      if (now - last_send_ms >= sync_throttle_ms || !running) get_time(am, now);
+      if (now - last_send_ms >= sync_throttle_ms || !running) get(am, now);
       if (!running) am.end_cmd();
     }
     return running;

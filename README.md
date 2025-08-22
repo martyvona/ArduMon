@@ -16,10 +16,11 @@ Once upon a time, it was not uncommon during microcontroller firmware developmen
 
 * The same command handler code can operate in either text or binary mode.  Text mode would be used for a traditional CLI-style monitor user interface.  Binary mode reuses the same command implementations, but turns them into an efficient packet-based application programming interface (API).
 * Supported command argument and response data types include: character, string, boolean, 8/16/32/64 bit signed and unsigned integers, and 32 and 64 bit floating point numbers.  Each command can accept zero or more parameters of these types and also respond with zero or more of them.  Text mode responses can also respond with free-form text, or with VT100 control sequences, e.g. to implement a dynamically updating text display.  In text mode, integers can be read and written in hexadecimal or decimal, and floating point numbers can be read and written in decimal or scientific format.
-* ArduMon implements a basic command line user experience in text mode: echo is supported, an optional text prompt is displayed, the user may hit backspace to erase the most recent character, and hitting the up arrow re-enters the previous command if there was space to save it.
+* ArduMon implements a basic command line user experience in text mode: echo is supported, an optional text prompt is displayed, the user may hit backspace to erase the most recent character, and hitting the up arrow re-enters the previous command (if there was enough memory to save it).
 
 ArduMon also
 * is header only
+* supports registering both function pointer and [functionoid](https://isocpp.org/wiki/faq/pointers-to-members#functionoids) command handlers
 * is 8 bit AVR compatible
 * supports AVR, ESP32, and STM32 Arduino compatible boards
 * can optionally also be built for PC: OS X, Linux, [Windows Subsystem for Linux (WSL)](https://learn.microsoft.com/en-us/windows/wsl/install)

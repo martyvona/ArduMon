@@ -143,10 +143,7 @@ public:
   typedef bool (*handler_t)(ArduMon&);
 
   //functioniod (https://isocpp.org/wiki/faq/pointers-to-members#functionoids) alternative to handler_t
-  struct Runnable {
-    virtual bool run(ArduMon&) = 0;
-    virtual ~Runnable() { }
-  };
+  struct Runnable { virtual bool run(ArduMon&) = 0; };
 
   //get the number of registered commands
   //this will also be the binary code of the next command that will be added with add_cmd() without an explicit code
@@ -229,14 +226,29 @@ public:
     return add_cmd_impl(handler, name, code, description, false);
   }
 
-  //sugar to add a command using the next available command code
+  //add a command using the next available command code
   bool add_cmd(const handler_t handler, const char *name, const char *description = 0) {
     return add_cmd_impl(handler, name, n_cmds, description, false);
   }
 
-  //sugar to add a command with null name, for binary mode use only
+  //add a command with null name, for binary mode use only
   bool add_cmd(const handler_t handler, const uint8_t code, const char *description = 0) {
     return add_cmd_impl(handler, 0, code, description, false);
+  }
+
+  //add a command; returns true on success
+  bool add_cmd(Runnable* const runnable, const char *name, const uint8_t code, const char *description = 0) {
+    return add_cmd_impl(runnable, name, code, description, false);
+  }
+
+  //add a command using the next available command code
+  bool add_cmd(Runnable* const runnable, const char *name, const char *description = 0) {
+    return add_cmd_impl(runnable, name, n_cmds, description, false);
+  }
+
+  //add a command with null name, for binary mode use only
+  bool add_cmd(Runnable* const runnable, const uint8_t code, const char *description = 0) {
+    return add_cmd_impl(runnable, 0, code, description, false);
   }
 
 #ifdef ARDUINO
@@ -245,9 +257,19 @@ public:
     return add_cmd_impl(handler, CCS(name), code, CCS(description), true);
   }
 
-  //sugar to add a command using the next available command code with strings from program memory
+  //add a command using the next available command code with strings from program memory
   bool add_cmd(const handler_t handler, const FSH *name, const FSH *description = 0) {
     return add_cmd_impl(handler, CCS(name), n_cmds, CCS(description), true);
+  }
+
+  //add a command with strings from program memory
+  bool add_cmd(Runnable* const runnable, const FSH *name, const uint8_t code, const FSH *description = 0) {
+    return add_cmd_impl(runnable, CCS(name), code, CCS(description), true);
+  }
+
+  //add a command using the next available command code with strings from program memory
+  bool add_cmd(Runnable* const runnable, const FSH *name, const FSH *description = 0) {
+    return add_cmd_impl(runnable, CCS(name), n_cmds, CCS(description), true);
   }
 #endif
 
@@ -643,20 +665,32 @@ private:
   uint8_t n_cmds = 0;
 
   struct Cmd {
-    handler_t handler; const char *name; uint8_t code; const char *description; bool progmem;
-    const bool is(const char *n) { return (progmem ? strcmp_P(n, name) : strcmp(n, name)) == 0; }
+
+    const char *name, *description;
+    uint8_t code;
+
+    union { handler_t handler; Runnable* runnable; };
+
+    enum { F_PROGMEM = 1 << 0, F_RUNNABLE = 1 << 1 };
+    uint8_t flags = 0;
+
+    const bool is(const char *n) { return (flags&F_PROGMEM ? strcmp_P(n, name) : strcmp(n, name)) == 0; }
+
 #ifdef ARDUINO
     const bool is(const FSH *n) {
-      return (progmem ? ArduMon::strcmp_PP(name, CCS(n)) : strcmp_P(name, CCS(n))) == 0;
+      return (flags&F_PROGMEM ? ArduMon::strcmp_PP(name, CCS(n)) : strcmp_P(name, CCS(n))) == 0;
     }
 #endif
+
+    bool invoke(ArduMon& am) { return flags&F_RUNNABLE ? runnable->run(am) : handler(am); }
   };
 
   Cmd cmds[max_num_cmds > 0 ? max_num_cmds : 1];
 
   bool fail(Error e, bool overwrite = false) { if (overwrite || err == Error::NONE) err = e; return false; }
 
-  bool add_cmd_impl(const handler_t func, const char *name, const uint8_t code, const char *desc, const bool progmem) {
+  template <typename T>
+  bool add_cmd_impl(const T func, const char *name, const uint8_t code, const char *desc, const bool progmem) {
     if (n_cmds == max_num_cmds) return fail(Error::CMD_OVERFLOW);
     for (uint8_t i = 0; i < n_cmds; i++) {
       if (name && ((progmem && cmds[i].is(reinterpret_cast<const FSH*>(name))) || (!progmem && cmds[i].is(name)))) {
@@ -664,14 +698,17 @@ private:
       }
       if (cmds[i].code == code) return fail(Error::CMD_OVERFLOW);
     }
-    cmds[n_cmds].handler = func;
     cmds[n_cmds].name = name;
-    cmds[n_cmds].code = code;
     cmds[n_cmds].description = desc;
-    cmds[n_cmds].progmem = progmem;
+    cmds[n_cmds].code = code;
+    cmds[n_cmds].flags = progmem ? Cmd::F_PROGMEM : 0;
+    set_func(cmds[n_cmds], func);
     ++n_cmds;
     return true;
   }
+
+  void set_func(Cmd& cmd, const handler_t func) { cmd.handler = func; }
+  void set_func(Cmd& cmd, Runnable* const func) { cmd.runnable = func; cmd.flags |= Cmd::F_RUNNABLE; }
 
   //does nothing if F_BIN, if txt_prompt is null, or if currently handling
   //otherwise sends optional CRLF followed by txt_prompt and a space
@@ -706,7 +743,7 @@ private:
     if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this);
     if (len > 2) {
       const uint8_t code = recv_buf[1];
-      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return (cmds[i].handler)(*this);
+      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return cmds[i].invoke(*this);
     }
     if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this);
     if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this);
@@ -773,7 +810,7 @@ private:
     if ((flags&F_UNIV_RUNNABLE) && universal_runnable) return universal_runnable->run(*this);
     if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this);
 
-    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return (cmds[i].handler)(*this);
+    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return cmds[i].invoke(*this);
 
     if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this);
     if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this);
@@ -1476,9 +1513,9 @@ private:
       if (!write_char(to_hex(cmds[i].code >> 4))) return false;
       if (!write_char(to_hex(cmds[i].code))) return false;
       if (!write_char(' ')) return false;
-      if (cmds[i].name && !write_str(cmds[i].name, cmds[i].progmem)) return false;
+      if (cmds[i].name && !write_str(cmds[i].name, cmds[i].flags&Cmd::F_PROGMEM)) return false;
       if (!write_char(' ')) return false;
-      if (cmds[i].description && !write_str(cmds[i].description, cmds[i].progmem)) return false;
+      if (cmds[i].description && !write_str(cmds[i].description, cmds[i].flags&Cmd::F_PROGMEM)) return false;
       if (!send_CRLF()) return false;
     }
     return true;

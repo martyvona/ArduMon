@@ -8,8 +8,5 @@ if [ $# -lt 2 ]; then
   exit 1
 fi
 
-STM32_CUBE_OS_X_NEW=/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin
-if [ -d $STM32_CUBE_OS_X_NEW ]; then export PATH=$STM32_CUBE_OS_X_NEW:$PATH; fi
-
 arduino-cli upload --fqbn $1 --board-options "pnum=$2,upload_method=MassStorage"
 

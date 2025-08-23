@@ -251,6 +251,18 @@ public:
     return add_cmd_impl(runnable, 0, code, description, false);
   }
 
+  //remove command registered with given code and return true if it was found, false if it was not found
+  bool remove_cmd(const uint8_t code) { return remove_cmd_impl(code); }
+
+  //remove command registered with given name and return true if it was found, false if it was not found
+  bool remove_cmd(const char *name) { return remove_cmd_impl(name); }
+
+  //remove command registered with given handler and return true if it was found, false if it was not found
+  bool remove_cmd(const handler_t handler) { return remove_cmd_impl(handler); }
+
+  //remove command registered with given runnable and return true if it was found, false if it was not found
+  bool remove_cmd(Runnable* const runnable) { return remove_cmd_impl(runnable); }
+
 #ifdef ARDUINO
   //add a command with strings from program memory
   bool add_cmd(const handler_t handler, const FSH *name, const uint8_t code, const FSH *description = 0) {
@@ -271,6 +283,9 @@ public:
   bool add_cmd(Runnable* const runnable, const FSH *name, const FSH *description = 0) {
     return add_cmd_impl(runnable, CCS(name), n_cmds, CCS(description), true);
   }
+
+  //remove command registered with given name and return true if it was found, false if it was not found
+  bool remove_cmd(const FSH *name) { return remove_cmd_impl(name); }
 #endif
 
   //does nothing if already in the requested mode
@@ -682,6 +697,12 @@ private:
     }
 #endif
 
+    const bool is(const uint8_t c) { return code == c; }
+
+    const bool is(const handler_t h) { return !(flags&F_PROGMEM) && handler == h; }
+
+    const bool is(Runnable* const r) { return (flags&F_PROGMEM) && runnable == r; }
+
     bool invoke(ArduMon& am) { return flags&F_RUNNABLE ? runnable->run(am) : handler(am); }
   };
 
@@ -704,6 +725,15 @@ private:
     cmds[n_cmds].flags = progmem ? Cmd::F_PROGMEM : 0;
     set_func(cmds[n_cmds], func);
     ++n_cmds;
+    return true;
+  }
+
+  template <typename T> bool remove_cmd_impl(T &key) {
+    uint8_t i = 0; bool found = false;
+    for (; !found && i < n_cmds; i++) found = cmds[i].is(key);
+    if (!found) return false;
+    for (uint8_t j = i + 1; j < n_cmds; j++) cmds[j - 1] = cmds[j];
+    --n_cmds;
     return true;
   }
 

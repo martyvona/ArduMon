@@ -143,7 +143,7 @@ public:
   typedef bool (*handler_t)(ArduMon&);
 
   //functioniod (https://isocpp.org/wiki/faq/pointers-to-members#functionoids) alternative to handler_t
-  struct Runnable { virtual bool run(ArduMon&) = 0; };
+  struct Runnable { virtual bool run(ArduMon&) = 0; virtual ~Runnable() {} };
 
   //get the number of registered commands
   //this will also be the binary code of the next command that will be added with add_cmd() without an explicit code

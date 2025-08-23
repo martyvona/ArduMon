@@ -121,7 +121,7 @@ void show_error(AM& am) {
 
 #ifndef BINARY_CLIENT
 
-Timer<AM> timer;
+AM_Timer<AM> timer;
 
 bool help(AM &am) { return am.send_cmds() && am.end_cmd(); }
 

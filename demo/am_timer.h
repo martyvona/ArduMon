@@ -8,12 +8,13 @@
  *
  * This is a countdown timer which demonstrates several ways ArduMon commands can send data over time.
  *
- * In synchronous text mode the Timer::start() command does not end until the timer reaches zero, or the user stops it
- * by hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to the
- * user using VT100 control codes to create a rolling counter that overwrites itself in the terminal without scrolling.
+ * In synchronous text mode the AM_Timer::start() command does not end until the timer reaches zero, or the user stops
+ * it by hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to
+ * the user using VT100 control codes to create a rolling counter that overwrites itself in the terminal without
+ * scrolling.
  * 
- * In asynchronous text mode the Timer::start() command ends quickly, but the timer keeps running.  The time can be
- * requested later with the Timer::get() command, and the timer can be stopped with Timer::stop().
+ * In asynchronous text mode the AM_Timer::start() command ends quickly, but the timer keeps running.  The time can be
+ * requested later with the AM_Timer::get() command, and the timer can be stopped with AM_Timer::stop().
  * 
  * Synchronous and asynchronous binary modes are similar to the corresponding text modes, except the time reports are
  * sent as binary packets instead of text and VT100 control codes.  These packets can either start with a configurable
@@ -36,17 +37,17 @@
  * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-template <typename AM> class Timer {
+template <typename AM> class AM_Timer {
 public:
 
-  struct Cmd : public AM::Runnable { Timer& tm; Cmd(Timer &_tm) : tm(_tm) {} };
+  struct Cmd : public AM::Runnable { AM_Timer& tm; Cmd(AM_Timer &_tm) : tm(_tm) {} };
   struct StartCmd : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.start(am); } };
   struct StopCmd  : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.stop(am); } };
   struct GetCmd   : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.get(am); } };
 
   StartCmd start_cmd; StopCmd stop_cmd; GetCmd get_cmd;
 
-  Timer() : start_cmd(*this), stop_cmd(*this), get_cmd(*this) {}
+  AM_Timer() : start_cmd(*this), stop_cmd(*this), get_cmd(*this) {}
 
   bool start(AM &am) {
 

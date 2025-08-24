@@ -729,12 +729,14 @@ private:
   }
 
   template <typename T> bool remove_cmd_impl(T &key) {
-    uint8_t i = 0; bool found = false;
-    for (; !found && i < n_cmds; i++) found = cmds[i].is(key);
-    if (!found) return false;
-    for (uint8_t j = i + 1; j < n_cmds; j++) cmds[j - 1] = cmds[j];
-    --n_cmds;
-    return true;
+    for (uint8_t i = 0; i < n_cmds; i++) {
+      if (cmds[i].is(key)) {
+        for (i++; i < n_cmds; i++) cmds[i - 1] = cmds[i];
+        --n_cmds;
+        return true;
+      }
+    }
+    return false;
   }
 
   void set_func(Cmd& cmd, const handler_t func) { cmd.handler = func; }

@@ -76,13 +76,13 @@ template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 128, uint16_t send_bu
 class ArduMon {
 public:
 
-  typedef unsigned long millis_t;
+  using millis_t = unsigned long;
 
 #ifndef ARDUINO
-  typedef ArduMonStream Stream;
+  using Stream = ArduMonStream;
 #endif
 
-  typedef __FlashStringHelper FSH;
+  using FSH = __FlashStringHelper;
 
   enum class Error : uint8_t {
     NONE,
@@ -140,7 +140,7 @@ public:
   //if the return is false then the handler failed, and should not have called end_cmd()
   //if the return is true then the handler succeded, but may or may not have called end_cmd()
   //if not, the command is considered still being handled until end_cmd() is called
-  typedef bool (*handler_t)(ArduMon&);
+  using handler_t = bool (*)(ArduMon&);
 
   //functioniod (https://isocpp.org/wiki/faq/pointers-to-members#functionoids) alternative to handler_t
   struct Runnable { virtual bool run(ArduMon&) = 0; virtual ~Runnable() {} };

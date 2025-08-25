@@ -27,7 +27,7 @@
 
 //shims for building on native host, currently supports OS X and Linux including WSL
 
-typedef char __FlashStringHelper;
+using __FlashStringHelper = char;
 
 static const __FlashStringHelper *F(const char *p) { return p; }
 

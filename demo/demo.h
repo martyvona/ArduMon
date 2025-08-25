@@ -77,7 +77,7 @@
 #endif
 
 //specialize the ArduMon class template and call that AM
-typedef ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT> AM;
+using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT>;
 
 /* set up the ArduMon input stream AM_STREAM **************************************************************************/
 

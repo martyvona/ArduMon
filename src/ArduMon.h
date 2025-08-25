@@ -117,7 +117,7 @@ public:
     }
   }
 
-  ArduMon(Stream *s, const bool binary = !with_text) : stream(s) {
+  explicit ArduMon(Stream *s, const bool binary = !with_text) : stream(s) {
     set_binary_mode_impl(binary, true, false);
     set_universal_handler(0);
     set_fallback_handler(0);
@@ -125,8 +125,13 @@ public:
   }
 
 #ifdef ARDUINO
-  ArduMon(const bool binary = !with_text) : ArduMon(&Serial, binary) { }
+  explicit ArduMon(const bool binary = !with_text) : ArduMon(&Serial, binary) { }
 #endif
+
+  ArduMon(const ArduMon&) = delete;
+  ArduMon& operator=(const ArduMon&) = delete;
+  ArduMon(ArduMon&&) = delete;
+  ArduMon& operator=(ArduMon&&) = delete;
 
   Error get_err() { return err; }
 

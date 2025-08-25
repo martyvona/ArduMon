@@ -51,7 +51,6 @@
 #include "arduino_shims.h"
 #include "CircBuf.h"
 
-bool quit;
 #include <ArduMon.h>
 
 template <size_t in_cap, size_t out_cap> class BufStream : public ArduMonStream {
@@ -84,9 +83,10 @@ public :
 
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
 
+bool quit; //used in demo.h
+
 #define AM_STREAM demo_stream
 #include "../demo.h"
-//demo.ino defines the global ArduMon isntance am
 
 #ifndef BINARY_CLIENT
 int listen_fileno = -1;

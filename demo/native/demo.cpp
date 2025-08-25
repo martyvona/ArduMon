@@ -48,8 +48,8 @@
 #include <sys/stat.h>
 #include <signal.h>
 
-#include "circ_buf.h"
 #include "arduino_shims.h"
+#include "CircBuf.h"
 
 bool quit;
 #include <ArduMon.h>

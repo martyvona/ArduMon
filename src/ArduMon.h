@@ -187,15 +187,16 @@ public:
   //if has_err() and there is an error handler, run it
   ArduMon& handle_err() { return handle_err_impl(); }
 
-  //set a default error handler that
+  //returns a default error handler that
   //* sends the error message back to the user in text mode
-  //* sends the error message to the default Serial port on Arduino in binary mode
+  //* sends the error message to the default Serial port on Arduino in binary mode (unless that Serial port is also the
+  //  stream used for binary communication, in which case the error message is swallowed)
   //* prints the error message to the console otherwise (native binary mode)
-  ArduMon& set_default_error_handler() {
-    return set_error_handler([](ArduMon &am){
+  handler_t get_default_error_handler() {
+    return [](ArduMon &am){
       if (am.is_binary_mode()) {
 #if ARDUINO
-        Serial.println(am.err_msg(am.clear_err()));
+        if (am.stream != &Serial) Serial.println(am.err_msg(am.clear_err()));
 #else
         printf("%s\n", am.err_msg(am.clear_err()));
 #endif
@@ -204,71 +205,36 @@ public:
         am.send_CRLF().send_raw(am.err_msg(e)).send_CRLF(true); 
       }
       return true;
-    });
+    };
   }
 
-  //set an error handler
-  //this will be called automatically during end_cmd() if has_err()
+  //install the default error handler returned by get_default_error_handler()
+  ArduMon& set_default_error_handler() { return set_error_handler(get_default_error_handler()); }
+
+  //set an error handler that will be called automatically during end_cmd() if has_err()
   //if the error handler returns true then clear_err() will be automatically called
-  ArduMon& set_error_handler(const handler_t handler) {
-    error_handler = handler;
-    flags &= ~F_ERROR_RUNNABLE;
-    return *this;
-  }
-
-  handler_t get_error_handler() { return (flags&F_ERROR_RUNNABLE) ? 0 : error_handler; }
-
-  //alternative to set_error_handler() but using a Runnable instead of a handler_t function pointer
-  ArduMon& set_error_runnable(Runnable* const runnable) {
-    universal_runnable = runnable;
-    flags |= F_UNIV_RUNNABLE;
-    return *this;
-  }
-
-  Runnable* get_error_runnable() { return (flags&F_UNIV_RUNNABLE) ? error_runnable : 0; }
+  ArduMon&  set_error_handler(const handler_t h)  { return set_handler (error_handler,  h, F_ERROR_RUNNABLE); }
+  handler_t get_error_handler()                   { return get_handler (error_handler,     F_ERROR_RUNNABLE); }
+  ArduMon&  set_error_runnable(Runnable* const r) { return set_runnable(error_runnable, r, F_ERROR_RUNNABLE); }
+  Runnable* get_error_runnable()                  { return get_runnable(error_runnable,    F_ERROR_RUNNABLE); }
 
   //set a universal command handler that will override any other handlers added with add_cmd()
   //this can be useful e.g. in binary mode to handle received packets where byte two is not necessarily a command code
   //set handler to 0 to remove any existing universal handler (and thus re-enable handlers added with add_cmd())
-  ArduMon& set_universal_handler(const handler_t handler) {
-    universal_handler = handler;
-    flags &= ~F_UNIV_RUNNABLE;
-    return *this;
-  }
-
-  handler_t get_universal_handler() { return (flags&F_UNIV_RUNNABLE) ? 0 : universal_handler; }
-
-  //alternative to set_universal_handler() but using a Runnable instead of a handler_t function pointer
-  ArduMon& set_universal_runnable(Runnable* const runnable) {
-    universal_runnable = runnable;
-    flags |= F_UNIV_RUNNABLE;
-    return *this;
-  }
-
-  Runnable* get_universal_runnable() { return (flags&F_UNIV_RUNNABLE) ? universal_runnable : 0; }
+  ArduMon&  set_universal_handler(const handler_t h)  { return set_handler (universal_handler,  h, F_UNIV_RUNNABLE); }
+  handler_t get_universal_handler()                   { return get_handler (universal_handler,     F_UNIV_RUNNABLE); }
+  ArduMon&  set_universal_runnable(Runnable* const r) { return set_runnable(universal_runnable, r, F_UNIV_RUNNABLE); }
+  Runnable* get_universal_runnable()                  { return get_runnable(universal_runnable,    F_UNIV_RUNNABLE); }
 
   //set a fallback command handler that will handle received commands
   //that did not have a command name (command code in binary mode) matching any handler added with add_cmd()
   //set handler to 0 to remove any existing fallback handler
-  ArduMon& set_fallback_handler(const handler_t handler) {
-    fallback_handler = handler;
-    flags &= ~F_FALLBACK_RUNNABLE;
-    return *this;
-  }
+  ArduMon&  set_fallback_handler(const handler_t h)  { return set_handler (fallback_handler,  h, F_FALLBACK_RUNNABLE); }
+  handler_t get_fallback_handler()                   { return get_handler (fallback_handler,     F_FALLBACK_RUNNABLE); }
+  ArduMon&  set_fallback_runnable(Runnable* const r) { return set_runnable(fallback_runnable, r, F_FALLBACK_RUNNABLE); }
+  Runnable* get_fallback_runnable()                  { return get_runnable(fallback_runnable,    F_FALLBACK_RUNNABLE); }
 
-  handler_t get_fallback_handler() { return (flags&F_FALLBACK_RUNNABLE) ? 0 : fallback_handler; }
-
-  //alternative to set_fallback_handler() but using a Runnable instead of a handler_t function pointer
-  ArduMon& set_fallback_runnable(Runnable* const runnable) {
-    fallback_runnable = runnable;
-    flags |= F_FALLBACK_RUNNABLE;
-    return *this;
-  }
-
-  Runnable* get_fallback_runnable() { return (flags&F_UNIV_RUNNABLE) ? fallback_runnable : 0; }
-
-  //add a command
-  //name may be null, but if not, it must be unique relative to already added commands
+  //add a command: name may be null, but if not, it must be unique relative to already added commands
   //code must be unique relative to already added commands
   //CMD_OVERFLOW if command with the given name (if any) or code already exists, or if max_num_cmds already added
   ArduMon& add_cmd(const handler_t handler, const char *name, const uint8_t code, const char *description = 0) {
@@ -763,6 +729,26 @@ private:
   Cmd cmds[max_num_cmds > 0 ? max_num_cmds : 1];
 
   ArduMon& fail(Error e) { if (err == Error::NONE) err = e; return *this; }
+
+  ArduMon& set_handler(handler_t &which, const handler_t handler, const uint8_t runnable_flag)  {
+    which = handler;
+    flags &= ~runnable_flag;
+    return *this;
+  }
+
+  handler_t get_handler(const handler_t handler, const uint8_t runnable_flag) {
+    return (flags&runnable_flag) ? 0 : handler;
+  }
+
+  ArduMon& set_runnable(Runnable* &which, Runnable* const runnable, const uint8_t runnable_flag)  {
+    which = runnable;
+    flags |= runnable_flag;
+    return *this;
+  }
+
+  Runnable* get_runnable(Runnable* const runnable, const uint8_t runnable_flag) {
+    return (flags&runnable_flag) ? runnable : 0;
+  }
 
   template <typename T>
   ArduMon& add_cmd_impl(const T func, const char *name, const uint8_t code, const char *desc, const bool progmem) {

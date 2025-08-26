@@ -32,9 +32,9 @@
 #include "AM_Timer.h"
 
 //builds text server demo by default
-//#define BASELINE_MEM to check memory usage of boilerplate
-//#define BINARY true to build binary server
-//#define BINARY_CLIENT to build binary client
+//#define BASELINE_MEM //to check memory usage of boilerplate
+//#define BINARY true //to build binary server
+//#define BINARY_CLIENT //to build binary client
 
 /* configure ArduMon **************************************************************************************************/
 
@@ -109,8 +109,8 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 /* create the ArduMon instance am *************************************************************************************/
 
 #ifndef BASELINE_MEM
+
 AM am(&AM_STREAM, BINARY);
-#endif //BASELINE_MEM
 
 //noop if ArduMon is not currently in error, otherwise clear the error
 //then on native print the error to stdout; on Arduino print the error to the default Serial port
@@ -228,7 +228,6 @@ bool get_float_param(AM &am) { return am.recv().send(float_param).end_cmd(); }
 bool quit_cmd(AM &am) { quit = true; return true; }
 #endif
 
-#ifndef BASELINE_MEM
 void add_cmds() {
 
   am.set_txt_prompt(F("demo>"));
@@ -270,16 +269,13 @@ void add_cmds() {
 
 #undef ADD_CMD
 }
-#endif //BASELINE_MEM
 
-#endif //BINARY_CLIENT
+#else //BINARY_CLIENT
 
 /* binary client state machine ****************************************************************************************/
 
 //in the text demo the user is the client, interacting as desired with the ArduMon server through a serial terminal
 //in the binary demo the client is its own separate program, and the interaction is a fixed state machine
-
-#ifdef BINARY_CLIENT
 
 //each BCStage we instantiate will automatically append itself to a linked list
 //then in the Arduino loop() method we will advance current_bc_stage through the list
@@ -426,9 +422,9 @@ protected:
 
 BCStage_done bc_done;
 
-#undef BC_GCC
-
 #endif //BINARY_CLIENT
+
+#endif //BASELINE_MEM
 
 /* Arduino setup() and loop() *****************************************************************************************/
 

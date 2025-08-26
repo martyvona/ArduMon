@@ -112,10 +112,15 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 AM am(&AM_STREAM, BINARY);
 #endif //BASELINE_MEM
 
-void show_error(AM& am) {
-  AM::Error e = am.get_err();
-  if (e != AM::Error::NONE) { println(AM::err_msg(e)); am.clear_err(); }
-}
+//noop if ArduMon is not currently in error, otherwise clear the error
+//then on native print the error to stdout; on Arduino print the error to the default Serial port
+//except in binary mode when BIN_RX_PIN is not defined, in which case the error is swallowed
+//this is used by the demo code for reporting ArduMon errors outside the context of a command handler
+void print_error() { if (am.has_err()) println(AM::err_msg(am.clear_err())); }
+
+#ifndef ARDUINO
+bool quit;
+#endif
 
 /* server command handlers ********************************************************************************************/
 
@@ -123,21 +128,16 @@ void show_error(AM& am) {
 
 AM_Timer<AM> timer;
 
-bool help(AM &am) { return am.send_cmds() && am.end_cmd(); }
+bool help(AM &am) { return am.send_cmds().end_cmd(); }
 
-bool argc(AM &am) { return am.send(am.argc()) && am.end_cmd(); }
+bool argc(AM &am) { return am.send(am.argc()).end_cmd(); }
 
-bool gcc(AM &am) {
-  const char *name; return am.recv() && am.recv(&name) && am.send(am.get_cmd_code(name)) && am.end_cmd();
-}
+bool gcc(AM &am) { const char *name; return am.recv().recv(&name).send(am.get_cmd_code(name)).end_cmd(); }
 
-template <typename T> bool echo(AM &am) {
-  //the first recv() skips over the command token itself
-  T v; return am.recv() && am.recv(&v) && am.send(v) && am.end_cmd();
-}
+template <typename T> bool echo(AM &am) { T v; return am.recv().recv(&v).send(v).end_cmd(); } //first recv() skips cmd
 
 template <typename T> bool echo_int(AM &am) {
-  T v; if (!am.recv() || !am.recv(&v)) return false;
+  T v; if (!am.recv().recv(&v)) return false;
   bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
   if (am.is_txt_mode()) {
     const uint8_t argc = am.argc();
@@ -149,11 +149,12 @@ template <typename T> bool echo_int(AM &am) {
   }
   const uint8_t fmt =
     width | (hex ? AM::FMT_HEX : 0) | (pad_zero ? AM::FMT_PAD_ZERO : 0) | (pad_right ? AM::FMT_PAD_RIGHT : 0);
-  return am.send_raw(v, fmt) && (am.is_binary_mode() || !pad_right || pad_zero || am.send_raw('|')) && am.end_cmd();
+  if (!am.is_binary_mode() && pad_right && !pad_zero) return am.send_raw(v, fmt).send('|').end_cmd();
+  else return am.send(v, fmt).end_cmd();
 }
 
 template <typename T> bool echo_flt(AM &am) {
-  T v; if (!am.recv() || !am.recv(&v)) return false;
+  T v; if (!am.recv().recv(&v)) return false;
   bool scientific = false; int8_t precision = -1, width = -1;
   if (am.is_txt_mode()) {
     const uint8_t argc = am.argc();
@@ -161,7 +162,7 @@ template <typename T> bool echo_flt(AM &am) {
     if (argc > 3 && !am.recv(&precision)) return false;
     if (argc > 4 && !am.recv(&width)) return false;
   }
-  return am.send(v, scientific, precision, width) && am.end_cmd();
+  return am.send(v, scientific, precision, width).end_cmd();
 }
 
 bool echo_char(AM &am) { return echo<char>(am); }
@@ -185,6 +186,7 @@ bool echo_double(AM &am) { return echo_flt<double>(am); }
 #endif
 
 bool echo_multiple(AM &am) {
+
   if (!am.recv()) return false; // skip command token/code
   
   const char* format;
@@ -195,46 +197,36 @@ bool echo_multiple(AM &am) {
 
     const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
 
-    if (strcmp(type, "chr") == 0) {
-      char v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "str") == 0) {
-      const char* v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "bll") == 0) {
-      bool v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "u08") == 0) {
-      uint8_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "s08") == 0) {
-      int8_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "u16") == 0) {
-      uint16_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "s16") == 0) {
-      int16_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "u32") == 0) {
-      uint32_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "s32") == 0) {
-      int32_t v; if (!am.recv(&v) || !am.send(v)) return false;
+    if (strcmp(type, "chr") == 0)      { char v;        if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "str") == 0) { const char* v; if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "bll") == 0) { bool v;        if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "u08") == 0) { uint8_t v;     if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "s08") == 0) { int8_t v;      if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "u16") == 0) { uint16_t v;    if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "s16") == 0) { int16_t v;     if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "u32") == 0) { uint32_t v;    if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "s32") == 0) { int32_t v;     if (!am.recv(&v).send(v)) return false; }
 #ifdef WITH_INT64
-    } else if (strcmp(type, "u64") == 0) {
-      uint64_t v; if (!am.recv(&v) || !am.send(v)) return false;
-    } else if (strcmp(type, "s64") == 0) {
-      int64_t v; if (!am.recv(&v) || !am.send(v)) return false;
+    else if (strcmp(type, "u64") == 0) { uint64_t v;    if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp(type, "s64") == 0) { int64_t v;     if (!am.recv(&v).send(v)) return false; }
 #endif
 #ifdef WITH_FLOAT
-    } else if (strcmp(type, "f32") == 0) {
-      float v; if (!am.recv(&v) || !am.send(v)) return false;
+    else if (strcmp(type, "f32") == 0) { float v;       if (!am.recv(&v).send(v)) return false; }
 #ifdef WITH_DOUBLE
-    } else if (strcmp(type, "f64") == 0) {
-      double v; if (!am.recv(&v) || !am.send(v)) return false;
+    else if (strcmp(type, "f64") == 0) { double v;      if (!am.recv(&v).send(v)) return false; }
 #endif
 #endif
-    }
   }
   return am.end_cmd();
 }
 
 float float_param = 0;
-bool set_float_param(AM &am) { return am.recv() && am.recv(&float_param) && am.end_cmd(); }
-bool get_float_param(AM &am) { return am.recv() && am.send(float_param) && am.end_cmd(); }
+bool set_float_param(AM &am) { return am.recv().recv(&float_param).end_cmd(); }
+bool get_float_param(AM &am) { return am.recv().send(float_param).end_cmd(); }
+
+#ifndef ARDUINO
+bool quit_cmd(AM &am) { quit = true; return true; }
+#endif
 
 #ifndef BASELINE_MEM
 void add_cmds() {
@@ -242,7 +234,7 @@ void add_cmds() {
   am.set_txt_prompt(F("demo>"));
   am.set_txt_echo(true);
 
-#define ADD_CMD(func, name, desc) if (!am.add_cmd((func), F(name), F(desc))) show_error(am);
+#define ADD_CMD(func, name, desc) if (!am.add_cmd((func), F(name), F(desc))) print_error();
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
@@ -250,28 +242,31 @@ void add_cmds() {
   ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
   ADD_CMD(&(timer.stop_cmd), "to", "stop timer");
   ADD_CMD(&(timer.get_cmd), "tg", "get timer");
-  ADD_CMD(echo_char, "ec", "echo char");
-  ADD_CMD(echo_str, "es", "echo str");
-  ADD_CMD(echo_bool, "eb", "echo bool");
-  ADD_CMD(echo_u8, "eu8", "[hex [width [pad_zero [pad_right]]]] | echo uint8");
-  ADD_CMD(echo_s8, "es8", "[hex [width [pad_zero [pad_right]]]] | echo int8");
-  ADD_CMD(echo_u16, "eu16", "[hex [width [pad_zero [pad_right]]]] | echo uint16");
-  ADD_CMD(echo_s16, "es16", "[hex [width [pad_zero [pad_right]]]] | echo int16");
-  ADD_CMD(echo_u32, "eu32", "[hex [width [pad_zero [pad_right]]]] | echo uint32");
-  ADD_CMD(echo_s32, "es32", "[hex [width [pad_zero [pad_right]]]] | echo int32");
+  ADD_CMD(echo_char, "ec", "arg | echo char");
+  ADD_CMD(echo_str, "es", "arg | echo str");
+  ADD_CMD(echo_bool, "eb", "arg | echo bool");
+  ADD_CMD(echo_u8, "eu8", "arg [hex [width [pad_zero [pad_right]]]] | echo uint8");
+  ADD_CMD(echo_s8, "es8", "arg [hex [width [pad_zero [pad_right]]]] | echo int8");
+  ADD_CMD(echo_u16, "eu16", "arg [hex [width [pad_zero [pad_right]]]] | echo uint16");
+  ADD_CMD(echo_s16, "es16", "arg [hex [width [pad_zero [pad_right]]]] | echo int16");
+  ADD_CMD(echo_u32, "eu32", "arg [hex [width [pad_zero [pad_right]]]] | echo uint32");
+  ADD_CMD(echo_s32, "es32", "arg [hex [width [pad_zero [pad_right]]]] | echo int32");
 #ifdef WITH_INT64
-  ADD_CMD(echo_u64, "eu64", "[hex [width [pad_zero [pad_right]]]] | echo uint64");
-  ADD_CMD(echo_s64, "es64", "[hex [width [pad_zero [pad_right]]]] | echo int64");
+  ADD_CMD(echo_u64, "eu64", "arg [hex [width [pad_zero [pad_right]]]] | echo uint64");
+  ADD_CMD(echo_s64, "es64", "arg [hex [width [pad_zero [pad_right]]]] | echo int64");
 #endif
 #ifdef WITH_FLOAT
-  ADD_CMD(echo_float, "ef", "[scientific [precision [width]]] | echo float");
+  ADD_CMD(echo_float, "ef", "arg [scientific [precision [width]]] | echo float");
 #ifdef WITH_DOUBLE
-  ADD_CMD(echo_float, "ed", "[scientific [precision [width]]] | echo double");
+  ADD_CMD(echo_float, "ed", "arg [scientific [precision [width]]] | echo double");
 #endif
 #endif
   ADD_CMD(echo_multiple, "em", "format_string args... | echo multiple args based on format");
-  ADD_CMD(set_float_param, "sfp", "float | set float param");
+  ADD_CMD(set_float_param, "sfp", "arg | set float param");
   ADD_CMD(get_float_param, "gfp", "get float param");
+#ifndef ARDUINO
+  ADD_CMD(quit_cmd, "quit", "quit");
+#endif
 
 #undef ADD_CMD
 }
@@ -312,7 +307,7 @@ public:
   bool run(AM& am) {
     am.set_universal_runnable(0);
     const bool ret = recv();
-    if (!ret) show_error(am);
+    if (!ret) print_error();
     return ret;
   }
 
@@ -329,7 +324,7 @@ private:
   void start() {
     started = true;
     am.set_universal_runnable(this); //install ourself as receive runnable
-    if (!send()) show_error(am);
+    if (!send()) print_error();
   }
 };
 
@@ -347,10 +342,10 @@ public:
 protected:
   bool send() {
     print(F("sending gcc (code=0) for cmd ")); println(cmd_name);
-    return am.send(static_cast<uint8_t>(0)) && am.send(cmd_name) && am.send_packet();
+    return am.send(static_cast<uint8_t>(0)).send(cmd_name).send_packet();
   }
   bool recv() {
-    if (!am.recv(&cmd_code) || !am.end_cmd()) return false;
+    if (!am.recv(&cmd_code).end_cmd()) return false;
     print(F("gcc received ")); println(static_cast<int>(cmd_code));
     return true;
   }
@@ -364,11 +359,11 @@ class BCStage_argc : public BCStage {
 protected:
   bool send() {
     print(F("sending argc (code=")); print(static_cast<int>(bc_gcc_argc.code())); println(F(") with 6 bytes"));
-    return am.send(bc_gcc_argc.code()) && am.send(static_cast<uint8_t>(42)) && am.send(3.14f) && am.send_packet();
+    return am.send(bc_gcc_argc.code()).send(static_cast<uint8_t>(42)).send(3.14f).send_packet();
   }
   bool recv() {
     uint8_t argc; const uint8_t expected = 6;
-    if (!am.recv(&argc) || !am.end_cmd()) return false;
+    if (!am.recv(&argc).end_cmd()) return false;
     if (argc != expected) print(F("ERROR: "));
     print(F("argc received ")); print(static_cast<int>(argc)); println(F(", expected expected"));
     return true;
@@ -386,10 +381,10 @@ public:
 protected:
   bool send() {
     print(F("sending sfp (code=")); print(static_cast<int>(bc_gcc_sfp.code())); print(F(") value=")); println(val);
-    if (!am.send(bc_gcc_sfp.code()) || !am.send(val) || !am.send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
+    if (!am.send(bc_gcc_sfp.code()).send(val).send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
     
     print(F("sending gfp (code=")); print(static_cast<int>(bc_gcc_gfp.code())); println(F(")"));
-    return am.send(bc_gcc_gfp.code()) && am.send_packet(); //1 + 1 + 1 = 3 bytes
+    return am.send(bc_gcc_gfp.code()).send_packet(); //1 + 1 + 1 = 3 bytes
     
     //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
     //so the above sends all block until the data can be put into the client's serial send buffer
@@ -398,7 +393,7 @@ protected:
   }
   bool recv() {
     float param;
-    if (!am.recv(&param) || !am.end_cmd()) return false;
+    if (!am.recv(&param).end_cmd()) return false;
     if (param != val) print(F("ERROR: "));
     print(F("gfp received ")); print(param); print(F(", expected ")); println(val);
     return true;
@@ -419,12 +414,12 @@ protected:
   bool send() {
     println(F("binary client done"));
 #ifndef ARDUINO
-    quit = true; //quit is defined in demo.cpp; if we are the binary client, this will cause us to terminate
+    quit = true; //if we are the binary client, this will cause us to terminate
 #endif
     //native demo.cpp implements quit command; see if that's present on server, and if so, invoke it to terminate server
     if (!bc_gcc_quit.has_cmd()) return true;
     print(F("sending quit (code=")); print(static_cast<int>(bc_gcc_quit.code())); println(F(")"));
-    return am.send(bc_gcc_quit.code()) && am.end_cmd();
+    return am.send(bc_gcc_quit.code()).end_cmd();
   }
   bool recv() { return true; }
 };
@@ -454,11 +449,17 @@ void setup() {
 #endif //ARDUINO
 
 #ifndef BASELINE_MEM
+
+#if !defined(ARDUINO) || !BINARY || defined(BIN_RX_PIN)
+  am.set_default_error_handler();
+#endif
+
 #ifdef BINARY_CLIENT
   am.set_send_wait_ms(AM::ALWAYS_WAIT);
 #else
   add_cmds(); //text or binary server
 #endif
+
 #endif //BASELINE_MEM
 }
 
@@ -468,7 +469,7 @@ void loop() {
 #ifndef BINARY_CLIENT
   timer.tick(am); //text or binary server
 #else //binary client: crank the state machine
-  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) { current_bc_stage = next; }
+  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) current_bc_stage = next;
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 }

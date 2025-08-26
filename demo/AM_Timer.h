@@ -55,7 +55,7 @@ public:
     if (!am.recv()) return false; //skip over command token or code
 
     uint8_t h, m, s;
-    if (!am.recv(&h) || !am.recv(&m) || !am.recv(&s)) return false;
+    if (!am.recv(&h).recv(&m).recv(&s)) return false;
     total_ms = remaining_ms = (h * 3600 + m * 60 + s) * 1000ul;
 
     accel = 1;
@@ -71,33 +71,27 @@ public:
     if (!async && am.argc() > 6 && !am.recv(&sync_throttle_ms)) return false;
 
     if (am.is_txt_mode()) {
-      am.send_raw(F("counting down from "));
-      am.send_raw(h);
-      am.send_raw(':');
-      am.send_raw(m, 2|AM::FMT_PAD_ZERO);
-      am.send_raw(':');
-      am.send_raw(s, 2|AM::FMT_PAD_ZERO);
-      am.send_raw(F(", accel="));
-      am.send_raw(accel);
-      am.send_raw(async ? F(", async=true") : F(", hit any key to cancel..."));
-      am.send_CRLF();
-      if (!async) {
-        am.send_raw(AM::VT100_CURSOR_HIDDEN);
-        //am.vt100_set_attr(AM::VT100_ATTR_REVERSE);
-        //am.vt100_set_attr(AM::VT100_ATTR_BLINK);
-        //am.vt100_set_attr(AM::VT100_ATTR_BRIGHT);
-        //am.vt100_set_attr(AM::VT100_ATTR_UNDERSCORE);
-        am.vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
-      }
+      //send()s cannot error in text mode
+      am.send_raw(F("counting down from "))
+        .send_raw(h).send_raw(':').send_raw(m, 2|AM::FMT_PAD_ZERO).send_raw(':').send_raw(s, 2|AM::FMT_PAD_ZERO)
+        .send_raw(F(", accel=")).send_raw(accel)
+        .send_raw(async ? F(", async=true") : F(", hit any key to cancel..."))
+        .send_CRLF(true);
+      if (!async)
+        am.send_raw(AM::VT100_CURSOR_HIDDEN)
+          //.vt100_set_attr(AM::VT100_ATTR_REVERSE)
+          //.vt100_set_attr(AM::VT100_ATTR_BLINK)
+          //.vt100_set_attr(AM::VT100_ATTR_BRIGHT)
+          //.vt100_set_attr(AM::VT100_ATTR_UNDERSCORE)
+          .vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
     }
 
     start_ms = millis();
     elapsed_ms = 0;
     running = true;
 
-    if (async) am.end_cmd(); else get(am, start_ms);
-
-    return true;
+    if (async) return am.end_cmd();
+    else return get(am, start_ms);
   }
 
   bool stop(AM &am) { running = false; return am.end_cmd(); }
@@ -109,19 +103,22 @@ public:
       const uint8_t m = (remaining_ms - h * 3600 * 1000ul) / (60 * 1000ul);
       const uint8_t s = (remaining_ms - (h * 3600 + m * 60) * 1000ul) / 1000ul;
       const uint16_t ms = remaining_ms - (h * 3600 + m * 60 + s) * 1000ul;
-      return (async || am.send_raw(AM::VT100_CLEAR_LINE)) &&
-        am.send_raw(h, 3|AM::FMT_PAD_ZERO) && am.send_raw(':') &&
-        am.send_raw(m, 2|AM::FMT_PAD_ZERO) && am.send_raw(':') &&
-        am.send_raw(s, 2|AM::FMT_PAD_ZERO) && am.send_raw('.') &&
-        am.send_raw(ms, 3|AM::FMT_PAD_ZERO) &&
-        ((!async && running) || am.send_CRLF()) &&
-        (async || running || (am.send_raw(AM::VT100_CURSOR_VISIBLE) && am.vt100_set_attr(AM::VT100_ATTR_RESET)));
+      if (!async) am.send_raw(AM::VT100_CLEAR_LINE);
+      am.send_raw(h, 3|AM::FMT_PAD_ZERO).send_raw(':')
+        .send_raw(m, 2|AM::FMT_PAD_ZERO).send_raw(':')
+        .send_raw(s, 2|AM::FMT_PAD_ZERO).send_raw('.').send_raw(ms, 3|AM::FMT_PAD_ZERO);
+      if (!async && !running) am.send_raw(AM::VT100_CURSOR_VISIBLE).vt100_set_attr(AM::VT100_ATTR_RESET);
+      if (async || !running) am.send_CRLF(true);
+      return true; //send()s cannot error in text mode
     } else {
       //32 bits is sufficient for up to about 49 days, but we are limited to about 11 days since h,m,s <= 255
-      return (async_cmd_code < 0 || async_cmd_code > 255 || am.send(static_cast<uint8_t>(async_cmd_code))) &&
-        am.send(static_cast<uint32_t>(start_ms)) && am.send(static_cast<uint32_t>(total_ms)) &&
-        am.send(static_cast<uint32_t>(elapsed_ms)) && am.send(static_cast<uint32_t>(remaining_ms)) &&
-        am.send_packet();
+      if (async_cmd_code >= 0 && async_cmd_code <= 255 && !am.send(static_cast<uint8_t>(async_cmd_code))) return false;
+      return am
+        .send(static_cast<uint32_t>(start_ms))
+        .send(static_cast<uint32_t>(total_ms))
+        .send(static_cast<uint32_t>(elapsed_ms))
+        .send(static_cast<uint32_t>(remaining_ms))
+        .send_packet();
     }
   }
 

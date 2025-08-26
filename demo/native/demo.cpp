@@ -83,8 +83,6 @@ public :
 
 BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;  
 
-bool quit; //used in demo.h
-
 #define AM_STREAM demo_stream
 #include "../demo.h"
 
@@ -93,8 +91,6 @@ int listen_fileno = -1;
 #endif
 int com_fileno = -1;
 std::string com_path;
-
-bool quit_cmd(AM &am) { quit = true; return true; }
 
 void usage() {
 #ifdef BINARY_CLIENT
@@ -189,9 +185,6 @@ int main(int argc, const char **argv) {
 
 #ifndef BINARY_CLIENT
   const bool is_socket = true;
-
-  std::cout << "registering quit command\n";
-  if (!am.add_cmd(quit_cmd, F("quit"), F("quit"))) show_error(am);
 
   std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
             << " command handlers\n";
@@ -293,9 +286,6 @@ int main(int argc, const char **argv) {
     for (size_t i = 0; i < nr; i++) { demo_stream.in.put(buf[i]); if (verbose) log("rcvd", buf[i]); }
     
     loop(); //call Arduino loop() method defined in demo.h
-    
-    AM::Error e = am.get_err();
-    if (e != AM::Error::NONE) { std::cerr << "ArduMon error: " << am.err_msg(e) << "\n"; am.clear_err(); }
     
     size_t ns = std::min(demo_stream.out.size(), sizeof(buf)), nw = 0;
     if (ns > 0) {

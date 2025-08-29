@@ -273,8 +273,7 @@ int main(int argc, const char **argv) {
     }
   };
 
-  quit = false;
-  while (!quit) {
+  while (!done) {
     
     int nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
     if (nr < 0) {
@@ -308,7 +307,7 @@ int main(int argc, const char **argv) {
   }
 
 #ifndef BINARY_CLIENT
-  if (!quit) std::cout << "lost connection on " << com_path << "\n";
+  if (!done) std::cout << "lost connection on " << com_path << "\n";
 #endif
 
   std::cout << "closing " << com_path << "\n";

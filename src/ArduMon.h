@@ -722,8 +722,6 @@ private:
     const bool is(const handler_t h) { return !(flags&F_PROGMEM) && handler == h; }
 
     const bool is(Runnable* const r) { return (flags&F_PROGMEM) && runnable == r; }
-
-    bool invoke(ArduMon& am) { return flags&F_RUNNABLE ? runnable->run(am) : handler(am); }
   };
 
   Cmd cmds[max_num_cmds > 0 ? max_num_cmds : 1];
@@ -807,33 +805,42 @@ private:
     return *this;
   }
 
+  //can't use std::function on AVR
+  template<typename T> bool dispatch(const T&pred) {
+
+    bool retval;
+    if (invoke(universal_handler, universal_runnable, flags, F_UNIV_RUNNABLE, retval)) return retval;
+
+    for (uint8_t i = 0; i < n_cmds; i++) {
+      if (pred(cmds[i])) {
+        if (invoke(cmds[i].handler, cmds[i].runnable, cmds[i].flags, Cmd::F_RUNNABLE, retval)) return retval;
+        else return false;
+      }
+    }
+
+    if (invoke(fallback_handler, fallback_runnable, flags, F_FALLBACK_RUNNABLE, retval)) return retval;
+
+    return fail(Error::BAD_CMD).end_cmd();
+  }
+
+  bool invoke(const handler_t handler, Runnable * const runnable, const uint8_t flags, const uint8_t runnable_flag,
+              bool &retval) {
+    if      ((flags&runnable_flag) && runnable) { retval = runnable->run(*this); return true; }
+    else if (!(flags&runnable_flag) && handler) { retval = handler(*this); return true; }
+    return false;
+  }
+
   //upon call, recv_ptr is the last received byte, which should be the checksum
   //if the checksum is invalid then BAD_PACKET
   //otherwise lookup command code, if not found then BAD_CMD
   //otherwise set recv_ptr = recv_buf + 1 and call command handler
   bool handle_bin_command() {
-
     const uint8_t len = recv_buf[0];
-
     uint8_t sum = 0; for (uint8_t i = 0; i < len; i++) sum += recv_buf[i];
     if (sum != 0) return fail(Error::BAD_PACKET);
-
     recv_ptr = recv_buf + 1; //skip over length
-
     arg_count = len - 2; //don't include length or checksum bytes, but include command code byte in arg count
-
-    if ((flags&F_UNIV_RUNNABLE) && universal_runnable) return universal_runnable->run(*this) || end_cmd();
-    else if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this) || end_cmd();
-
-    if (len > 2) {
-      const uint8_t code = recv_buf[1];
-      for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].code == code) return cmds[i].invoke(*this) || end_cmd();
-    }
-
-    if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this) || end_cmd();
-    else if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this) || end_cmd();
-
-    return fail(Error::BAD_CMD).end_cmd();
+    return dispatch([&](Cmd& cmd){ return arg_count && cmd.code == recv_buf[1]; });
   }
 
   //upon call, recv_ptr is the last received character, which will be either '\r' or '\n'
@@ -890,18 +897,10 @@ private:
     while (++recv_ptr <= end) { if ((recv_ptr == end || !(*recv_ptr)) && *(recv_ptr - 1)) ++arg_count; }
     recv_ptr = tmp;
 
-    const char *cmd = CCS(next_tok(0));
+    const char *cmd_name = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
 
-    if ((flags&F_UNIV_RUNNABLE) && universal_runnable) return universal_runnable->run(*this) || end_cmd();
-    else if (!(flags&F_UNIV_RUNNABLE) && universal_handler) return universal_handler(*this) || end_cmd();
-
-    for (uint8_t i = 0; i < n_cmds; i++) if (cmds[i].is(cmd)) return cmds[i].invoke(*this) || end_cmd();
-
-    if ((flags&F_FALLBACK_RUNNABLE) && fallback_runnable) return fallback_runnable->run(*this) || end_cmd();
-    else if (!(flags&F_FALLBACK_RUNNABLE) && fallback_handler) return fallback_handler(*this) || end_cmd();
-
-    return fail(Error::BAD_CMD).end_cmd();
+    return dispatch([&](Cmd& cmd){ return cmd.is(cmd_name); });
   }
 
   //advance recv_ptr to the start of the next input token in text mode and return the current token
@@ -1496,7 +1495,7 @@ private:
           else ++recv_ptr;
         } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
           flags &= ~F_RECEIVING; flags |= F_HANDLING;
-          if (!handle_bin_command()) fail(Error::BAD_HANDLER);
+          if (!handle_bin_command()) fail(Error::BAD_HANDLER).end_cmd();
           break; //handle at most one command per update()
         } else ++recv_ptr;
 
@@ -1519,7 +1518,7 @@ private:
         //each command handler has about 5ms to complete before the next command will overflow the receive buffer if
         //a script is being piped into the serial port.)
         flags &= ~F_RECEIVING; flags |= F_HANDLING;
-        if (!handle_txt_command()) fail(Error::BAD_HANDLER);
+        if (!handle_txt_command()) fail(Error::BAD_HANDLER).end_cmd();
         break; //handle at most one command per update() 
       }
 
@@ -1558,7 +1557,7 @@ private:
 
     } //pump receive buffer
 
-    //`RECV_OVERFLOW`, `RECV_TIMEOUT`, `BAD_CMD, `BAD_PACKET, `PARSE_ERR, UNSUPPORTED
+    //RECV_OVERFLOW, RECV_TIMEOUT, BAD_CMD, BAD_PACKET, PARSE_ERR, UNSUPPORTED
     if (!is_handling() && has_err() && handle_err_impl()) end_cmd_impl().send_txt_prompt();
 
     if (binary_mode) pump_send_buf(0);
@@ -1598,7 +1597,7 @@ private:
 
     const bool was_handling = flags&F_HANDLING; //tolerate being called when not actually handling
 
-    //RECV_UNDERFLOW, BAD_ARG, SEND_OVERFLOW, UNSUPPORTED
+    //BAD_HANDLER, RECV_UNDERFLOW, BAD_ARG, SEND_OVERFLOW, UNSUPPORTED
     handle_err_impl();
 
     if (!binary_mode) send_CRLF();
@@ -1608,6 +1607,7 @@ private:
     arg_count = 0;
 
     if (!was_handling) return *this;
+
     else if (!binary_mode || !with_binary) return send_txt_prompt();
     else return send_packet_impl();
   }

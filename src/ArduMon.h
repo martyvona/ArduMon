@@ -569,23 +569,10 @@ public:
   //https://github.com/martyvona/ArduMon/blob/main/vtansi.htm
   //https://github.com/martyvona/ArduMon/blob/main/VT100_Escape_Codes.html
 
-#ifndef __AVR__
-#define PROGMEM
-#define FSH char
-#endif
-  static constexpr const FSH * VT100_INIT PROGMEM = (const FSH *)"\x1B""c"; //reset to initial state
-  static constexpr const FSH * VT100_CLEAR_DOWN PROGMEM = (const FSH *)"\x1B[0J"; //clear screen from cursor down
-  static constexpr const FSH * VT100_CLEAR_SCREEN PROGMEM = (const FSH *)"\x1B[2J"; //clear entire screen
-  static constexpr const FSH * VT100_CLEAR_RIGHT PROGMEM = (const FSH *)"\x1B[0K"; //clear line from cursor right
-  static constexpr const FSH * VT100_CLEAR_LINE PROGMEM = (const FSH *)"\r\x1B[2K"; //and move to start of line
-  //the following cursor visible/hidden are actually VT510 codes, but are supported by modern terminal emulators
-  //https://vt100.net/docs/vt510-rm/DECTCEM.html
-  static constexpr const FSH * VT100_CURSOR_VISIBLE PROGMEM = (const FSH *)"\x1B[?25h";
-  static constexpr const FSH * VT100_CURSOR_HIDDEN PROGMEM = (const FSH *)"\x1B[?25l";
-#ifndef __AVR__ 
-#undef FSH
-#undef PROGMEM
-#endif
+  ArduMon& vt100_clear_right()    { return write_str(F("\x1B[0K")); }
+  ArduMon& vt100_clear_line()     { return write_str(F("\r\x1B[2K")); }
+  ArduMon& vt100_cursor_visible() { return write_str(F("\x1B[?25h")); }
+  ArduMon& vt100_cursor_hidden()  { return write_str(F("\x1B[?25l")); }
 
   static const char VT100_UP = 'A', VT100_DOWN = 'B', VT100_RIGHT = 'C', VT100_LEFT = 'D';
 
@@ -1524,7 +1511,7 @@ private:
 
       if (*recv_ptr == '\b') { //text mode backspace
         if (recv_ptr > recv_buf) {
-          if (flags&F_TXT_ECHO) { vt100_move_rel(1, VT100_LEFT); write_str(VT100_CLEAR_RIGHT); }
+          if (flags&F_TXT_ECHO) { vt100_move_rel(1, VT100_LEFT); vt100_clear_right(); }
           --recv_ptr;
         }
         continue;
@@ -1546,7 +1533,7 @@ private:
       if (!esc_seq_end) ++recv_ptr; //common case
       else if (*recv_ptr == 'A' && (recv_ptr - recv_buf) < recv_buf_sz/2 && recv_buf[recv_buf_sz/2] == '\n') {
         //user hit up arrow and we have a saved previous command: switch to it
-        write_str(VT100_CLEAR_LINE);
+        vt100_clear_line();
         send_txt_prompt();
         recv_ptr = recv_buf;
         for (uint16_t i = recv_buf_sz/2 + 1; i < recv_buf_sz && recv_buf[i]; i++) {

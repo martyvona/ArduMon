@@ -161,7 +161,7 @@ void add_cmds() {
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
   ADD_CMD(argc, "argc", "show arg count");
-  ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel] [async] [async_cmd_code|sync_throttle_ms] | start timer");
+  ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel [sync_throttle_ms|-1 [bin_response_code]]] | start timer");
   ADD_CMD(&(timer.stop_cmd), "to", "stop timer");
   ADD_CMD(&(timer.get_cmd), "tg", "get timer");
   ADD_CMD(echo_char, "ec", "arg | echo char");

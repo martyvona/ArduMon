@@ -25,13 +25,13 @@
 
 AM_Timer<AM> timer;
 
-bool help(AM &am) { return am.send_cmds().end_cmd(); }
+bool help(AM &am) { return am.send_cmds().end_handler(); }
 
-bool argc(AM &am) { return am.send(am.argc()).end_cmd(); }
+bool argc(AM &am) { return am.send(am.argc()).end_handler(); }
 
-bool gcc(AM &am) { const char *name; return am.recv().recv(&name).send(am.get_cmd_code(name)).end_cmd(); }
+bool gcc(AM &am) { const char *name; return am.recv().recv(&name).send(am.get_cmd_code(name)).end_handler(); }
 
-template <typename T> bool echo(AM &am) { T v; return am.recv().recv(&v).send(v).end_cmd(); } //first recv() skips cmd
+template <typename T> bool echo(AM &am) { T v; return am.recv().recv(&v).send(v).end_handler(); }
 
 #ifdef __AVR__
 bool strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, reinterpret_cast<const char *>(b)); }
@@ -53,7 +53,7 @@ bool echo_bool(AM &am) {
     }
     if (argc > 3 && !am.recv(&upper_case)) return false;
   }
-  return am.send(v, style, upper_case).end_cmd();
+  return am.send(v, style, upper_case).end_handler();
 }
 
 template <typename T> bool echo_int(AM &am) {
@@ -69,8 +69,8 @@ template <typename T> bool echo_int(AM &am) {
   }
   const uint8_t fmt =
     width | (hex ? AM::FMT_HEX : 0) | (pad_zero ? AM::FMT_PAD_ZERO : 0) | (pad_right ? AM::FMT_PAD_RIGHT : 0);
-  if (!am.is_binary_mode() && pad_right && !pad_zero) return am.send_raw(v, fmt).send('|').end_cmd();
-  else return am.send(v, fmt).end_cmd();
+  if (!am.is_binary_mode() && pad_right && !pad_zero) return am.send_raw(v, fmt).send('|').end_handler();
+  else return am.send(v, fmt).end_handler();
 }
 
 template <typename T> bool echo_flt(AM &am) {
@@ -82,7 +82,7 @@ template <typename T> bool echo_flt(AM &am) {
     if (argc > 3 && !am.recv(&precision)) return false;
     if (argc > 4 && !am.recv(&width)) return false;
   }
-  return am.send(v, scientific, precision, width).end_cmd();
+  return am.send(v, scientific, precision, width).end_handler();
 }
 
 bool echo_char(AM &am) { return echo<char>(am); }
@@ -137,26 +137,27 @@ bool echo_multiple(AM &am) {
     else return false;
 #endif
   }
-  return am.end_cmd();
+  return am.end_handler();
 }
 
 float float_param = 0;
-bool set_float_param(AM &am) { return am.recv().recv(&float_param).end_cmd(); }
-bool get_float_param(AM &am) { return am.recv().send(float_param).end_cmd(); }
+bool set_float_param(AM &am) { return am.recv().recv(&float_param).end_handler(); }
+bool get_float_param(AM &am) { return am.recv().send(float_param).end_handler(); }
 
 bool quit(AM &am) {
   print(am.is_binary_mode() ? F("binary") : F("text")); print(F(" server done, "));
-  print(num_errors); println(F(" total errors"));
-  done = true;
+  print(num_errors); print(F(" total errors")); println();
+  demo_done = true;
   return true;
 }
 
 void add_cmds() {
 
-  am.set_txt_prompt(F("demo>"));
+  am.set_txt_prompt(F("ArduMon>"));
   am.set_txt_echo(true);
 
-#define ADD_CMD(func, name, desc) if (!am.add_cmd((func), F(name), F(desc))) print_error();
+#define ADD_CMD(func, name, desc) \
+  if (am.add_cmd((func), F(name), F(desc)).has_err()) { print(AM::err_msg(am.clear_err())); println(); }
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");

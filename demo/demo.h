@@ -102,9 +102,7 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 
 #endif //BINARY && defined(BIN_RX_PIN)
 
-#endif //ARDUINO
-
-//AM_STREAM is defined externally for native build
+#endif //ARDUINO (AM_STREAM is defined externally in demo.cpp for native build)
 
 /* create the ArduMon instance am and other global state **************************************************************/
 
@@ -112,17 +110,11 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 
 AM am(&AM_STREAM, BINARY); //the ArduMon instance
 
-//noop if ArduMon is not currently in error, otherwise clear the error
-//then on native print the error to stdout; on Arduino print the error to the default Serial port
-//except in binary mode when BIN_RX_PIN is not defined, in which case the error is swallowed
-//this is used by the demo code for reporting ArduMon errors outside the context of a command handler
-void print_error() { if (am.has_err()) println(AM::err_msg(am.clear_err())); }
-
-bool done = false; //terminate the demo when this flag is set
-
 //this error handler wraps the default one and adds a total count
 uint16_t num_errors = 0;
 bool count_errors(AM &am) { if (num_errors < 65535) ++num_errors; return am.get_default_error_handler()(am); }
+
+bool demo_done = false; //terminate the demo when this flag is set
 
 #ifdef BINARY_CLIENT
 #include "binary_client.h" //most of the demo binary client here
@@ -162,7 +154,7 @@ void setup() {
 void loop() {
 #ifndef BASELINE_MEM
 #ifdef ARDUINO
-  if (done) {
+  if (demo_done) {
     digitalWrite(LED_BUILTIN, !num_errors || !((millis()/1000)%2)); //blink LED if there were errors, solid otherwise
     return;
   }
@@ -171,7 +163,7 @@ void loop() {
 #ifndef BINARY_CLIENT
   timer.tick(am); //text or binary server: tick the timer
 #else //binary client: crank the state machine
-  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update())) current_bc_stage = next;
+  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update(am))) current_bc_stage = next;
 #endif //BINARY_CLIENT
 #endif //BASELINE_MEM
 }

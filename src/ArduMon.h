@@ -85,9 +85,9 @@ public:
   using FSH = __FlashStringHelper;
 
   //handler_t is a pointer to a function taking reference to ArduMon object and returning void
-  //if the return is false then the handler failed, end_cmd() will be automatically called if necessary
-  //if the return is true then the handler succeded so far; it may or may not have called end_cmd()
-  //the command is still being handled until end_cmd() is called
+  //if the return is false then the handler failed, end_handler() will be automatically called if necessary
+  //if the return is true then the handler succeded so far; it may or may not have called end_handler()
+  //the command is still being handled until end_handler() is called
   using handler_t = bool (*)(ArduMon&);
 
   //functioniod (https://isocpp.org/wiki/faq/pointers-to-members#functionoids) alternative to handler_t
@@ -211,7 +211,7 @@ public:
   //install the default error handler returned by get_default_error_handler()
   ArduMon& set_default_error_handler() { return set_error_handler(get_default_error_handler()); }
 
-  //set an error handler that will be called automatically during end_cmd() if has_err()
+  //set an error handler that will be called automatically during end_handler() if has_err()
   //if the error handler returns true then clear_err() will be automatically called
   ArduMon&  set_error_handler(const handler_t h)  { return set_handler (error_handler,  h, F_ERROR_RUNNABLE); }
   handler_t get_error_handler()                   { return get_handler (error_handler,     F_ERROR_RUNNABLE); }
@@ -364,13 +364,11 @@ public:
   //if a command is currently being received the new timeout will not apply until the next command
   //set to 0 or ALWAYS_WAIT to disable the timeout (it's disabled by default)
   ArduMon& set_recv_timeout_ms(const millis_t ms) { recv_timeout_ms = ms == ALWAYS_WAIT ? 0 : ms; return *this; }
-
   millis_t get_recv_timeout_ms() { return recv_timeout_ms; }
 
   //block for up to this long in send_packet() in binary mode, default 0, use ALWAYS_WAIT to block indefinitely
   //text mode sends always block until space is available in the Arduino serial send buffer
   ArduMon& set_send_wait_ms(const millis_t ms) { send_wait_ms = ms; return *this; }
-
   millis_t get_send_wait_ms() { return send_wait_ms; }
 
   //this must be called from the Arduino loop() method
@@ -383,7 +381,7 @@ public:
   //if has_err() and there is an error handler (or Runnable) then run it
   //in text mode then send the prompt, if any
   //in binary mode send_packet()
-  ArduMon& end_cmd() { return end_cmd_impl(); }
+  ArduMon& end_handler() { return end_handler_impl(); }
 
   //noop in text mode
   //in binary mode if the send buffer is empty then noop
@@ -406,9 +404,8 @@ public:
   //in either case the return is only valid while handling a command
   uint8_t argc() { return arg_count; }
 
-  //skip the next received token in text mode; skip the next received byte in binary mode
-  //call this to skip over the received command token in text mode or the command code in binary mode
-  ArduMon& recv() { next_tok(1); return *this; }
+  //skip the next n tokens in text mode; skip the next n bytes in binary mode
+  ArduMon& recv(const uint8_t n = 1) { next_tok(n); return *this; }
 
   //receive a character
   ArduMon& recv(char *v) {
@@ -753,7 +750,7 @@ private:
     return *this;
   }
 
-  template <typename T> ArduMon remove_cmd_impl(T &key) {
+  template <typename T> ArduMon& remove_cmd_impl(T &key) {
     for (uint8_t i = 0; i < n_cmds; i++) {
       if (cmds[i].is(key)) {
         for (i++; i < n_cmds; i++) cmds[i - 1] = cmds[i];
@@ -807,7 +804,7 @@ private:
 
     if (invoke(fallback_handler, fallback_runnable, flags, F_FALLBACK_RUNNABLE, retval)) return retval;
 
-    return fail(Error::BAD_CMD).end_cmd();
+    return fail(Error::BAD_CMD).end_handler_impl();
   }
 
   bool invoke(const handler_t handler, Runnable * const runnable, const uint8_t flags, const uint8_t runnable_flag,
@@ -839,7 +836,7 @@ private:
 
     const uint16_t len = recv_ptr - recv_buf + 1;
 
-    if (len <= 1) return end_cmd(); //ignore empty command, e.g. if received just '\r' or '\n'
+    if (len <= 1) return end_handler_impl(); //ignore empty command, e.g. if received just '\r' or '\n'
 
     const bool save_cmd = (len + 1) <= recv_buf_sz/2; //save cmd to upper half of recv_buf if possible for history
     if (save_cmd) recv_buf[recv_buf_sz/2] = '\n'; //saved command is signaled by recv_buf[recv_buf_sz/2] = '\n'
@@ -876,7 +873,7 @@ private:
     recv_ptr = recv_buf;
 
     while (*recv_ptr == 0) { //skip leading spaces, which are now 0s
-      if (++recv_ptr == end) return end_cmd(); //ignore empty command
+      if (++recv_ptr == end) return end_handler_impl(); //ignore empty command
     }
 
     uint8_t *tmp = recv_ptr;
@@ -1482,7 +1479,7 @@ private:
           else ++recv_ptr;
         } else if (recv_ptr - recv_buf + 1 == recv_buf[0]) { //received full packet
           flags &= ~F_RECEIVING; flags |= F_HANDLING;
-          if (!handle_bin_command()) fail(Error::BAD_HANDLER).end_cmd();
+          if (!handle_bin_command()) fail(Error::BAD_HANDLER).end_handler_impl();
           break; //handle at most one command per update()
         } else ++recv_ptr;
 
@@ -1505,7 +1502,7 @@ private:
         //each command handler has about 5ms to complete before the next command will overflow the receive buffer if
         //a script is being piped into the serial port.)
         flags &= ~F_RECEIVING; flags |= F_HANDLING;
-        if (!handle_txt_command()) fail(Error::BAD_HANDLER).end_cmd();
+        if (!handle_txt_command()) fail(Error::BAD_HANDLER).end_handler_impl();
         break; //handle at most one command per update() 
       }
 
@@ -1545,7 +1542,7 @@ private:
     } //pump receive buffer
 
     //RECV_OVERFLOW, RECV_TIMEOUT, BAD_CMD, BAD_PACKET, PARSE_ERR, UNSUPPORTED
-    if (!is_handling() && has_err() && handle_err_impl()) end_cmd_impl().send_txt_prompt();
+    if (!is_handling() && has_err() && handle_err_impl()) end_handler_impl().send_txt_prompt();
 
     if (binary_mode) pump_send_buf(0);
 
@@ -1579,8 +1576,8 @@ private:
     return *this;
   }
 
-  //see end_cmd()
-  ArduMon& end_cmd_impl() {
+  //see end_handler()
+  ArduMon& end_handler_impl() {
 
     const bool was_handling = flags&F_HANDLING; //tolerate being called when not actually handling
 
@@ -1607,7 +1604,7 @@ private:
 
     //check_write() already ensured that len < send_buf_sz, so the next line is redundant
     //also it's better to have send_packet_impl() not be able to generate an error
-    //since it's called after handle_err_impl() in end_cmd_impl()
+    //since it's called after handle_err_impl() in end_handler_impl()
     //if (len >= send_buf_sz) return fail(Error::SEND_OVERFLOW); //need 1 byte for checksum
 
     if (len > 1) { //ignore empty packet, but first byte of send_buf is reserved for length

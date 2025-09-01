@@ -67,7 +67,7 @@ For each command in text mode:
     when receiving a file of commands, in which case echo would typically be disabled, and ignored empty commands should    not matter.
 1.  If the backspace character (`\b`, `0x08`) is received and there was a previously received character in the command
     then (a) the previously received character is ignored and (b) VT100 control codes are sent to erase the previous
-    character on the terminal if echo is enbled.
+    character on the terminal if echo is enabled.
 1.  If the received command is empty then it is ignored and the command interpreter resets.
 1.  If the received command including the terminating carriage return is larger than the receive buffer then
     `RECV_OVERFLOW` and the command interpreter resets.

@@ -206,7 +206,7 @@ cd demo/native
 ./demo_client_native PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial conveter, if you are using one).
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial conveter, if you are using one).
 
 ## Building the Demo for Arduino
 
@@ -269,7 +269,7 @@ cd demo
 ./upload-avr.sh arduino:avr:uno PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
 
@@ -284,7 +284,7 @@ cd demo
 ./upload-esp32.sh arduino:esp32:nano_nora PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
 
@@ -355,7 +355,7 @@ To connect with minicom:
 minicom -D PORT -b 115200
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit minicom hit ctrl-A (option-Z on OS X), then Q.  On OS X, is If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
@@ -383,9 +383,9 @@ To connect with screen:
 screen PORT 115200
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
-To exit screen hit ctrl-A then \ (backslash) then Y.
+To exit screen hit ctrl-A then ctrl-\ (ctrl-backslash) then Y.
 
 ### Connecting with C-Kermit
 
@@ -404,7 +404,7 @@ cd demo
 ./kermit.scr PORT 115200
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit kermit hit ctrl-\ then Q.
 
@@ -414,7 +414,7 @@ To exit kermit hit ctrl-\ then Q.
 arduino-cli monitor --port PORT --config 115200 --quiet --raw
 ```
 
-where `PORT` is e.g. `/dev/cu.usbN` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
 
 To exit the arduino-cli monitor hit ctrl-C.  You may need to then enter the `reset` command to reinitialize your terminal.
 

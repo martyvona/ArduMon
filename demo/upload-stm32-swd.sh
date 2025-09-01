@@ -12,5 +12,12 @@ fi
 STM32_CUBE_OS_X_NEW=/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin
 if [ -d $STM32_CUBE_OS_X_NEW ]; then export PATH=$STM32_CUBE_OS_X_NEW:$PATH; fi
 
-arduino-cli upload --fqbn $1 --board-options "pnum=$2,upload_method=swdMethod"
+fqbn=$1
+board=$2
+
+what=`pwd`
+what=${what##*/}
+echo "uploading $what for $fqbn $board (SWD)"
+
+arduino-cli upload --fqbn $fqbn --board-options "pnum=$board,upload_method=swdMethod"
 

@@ -8,5 +8,12 @@ if [ $# -lt 2 ]; then
   exit 1
 fi
 
-arduino-cli upload --fqbn $1 --board-options "pnum=$2,upload_method=MassStorage"
+fqbn=$1
+board=$2
+
+what=`pwd`
+what=${what##*/}
+echo "uploading $what for $fqbn $board (mass storage)"
+
+arduino-cli upload --fqbn $fqbn --board-options "pnum=$board,upload_method=MassStorage"
 

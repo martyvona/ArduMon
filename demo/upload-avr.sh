@@ -8,5 +8,12 @@ if [ $# -lt 2 ]; then
   exit 1
 fi
 
-arduino-cli upload --fqbn arduino:avr:$1 -p $2
+fqbn=arduino:avr:$1 
+port=$2
+
+what=`pwd`
+what=${what##*/}
+echo "uploading $what for $fqbn to port $port"
+
+arduino-cli upload --fqbn $fqbn -p $port
 

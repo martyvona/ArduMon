@@ -4,13 +4,16 @@
 
 **add a CLI *and* a packet API to your Arduino project**
 
+
+[![Arduino with an ArduMon CLI](./photos/ArduMon.png)](./photos/ArduMon.png)
+
 **CURRENT STATUS: WORK IN PROGRESS**
 
 Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
 
 [MIT License](./LICENSE.txt)
 
-Once upon a time, it was not uncommon in microcontroller development to implement a *firmware monitor* as a command line interface (CLI) exposed on a serial port.  (Terminology: the word *monitor* has been used both for firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting-to-ardumon) to it.)  Though there are now more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no](https://github.com/kcl93/VT100) [shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
+Once upon a time, it was not uncommon in microcontroller development to implement a *firmware monitor* as a command line interface (CLI) exposed on a serial port.  (The term *monitor* has been used both for firmware that exposes a user interface as well as for the serial terminal program which would [connect](#connecting-to-ardumon) to it.)  Though there are now more [advanced options](https://www.st.com/en/development-tools/stm32cubemonitor.html), serial monitors are still implemented, particularly on smaller platforms.  And there is [no](https://github.com/kcl93/VT100) [shortage](https://github.com/gpb01/SerialCmd) of [existing](https://github.com/ppedro74/Arduino-SerialCommands) [Arduino](https://github.com/argandas/SerialCommand) [libraries](https://github.com/naszly/Arduino-StaticSerialCommands) to help implement them.
 
 *ArduMon* is yet another one of these, but with a few features that I didn't see in most of the existing ones:
 

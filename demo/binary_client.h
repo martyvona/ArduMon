@@ -49,8 +49,9 @@ public:
 
   bool run(AM& am) {
     ++num_receives;
-    if (done(am) && !remove_handler(am)) { print(AM::err_msg(am.clear_err())); println(); }
-    return recv(am);
+    if (!recv(am)) return false;
+    if (done(am) && !remove_handler(am)) return false;
+    return true;
   }
 
 protected:

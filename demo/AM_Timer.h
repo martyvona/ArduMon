@@ -126,7 +126,7 @@ public:
   bool tick(AM &am) {
     if (!running) return false;
     const uint64_t now = millis();
-    elapsed_ms = static_cast<uint32_t>(millis() - start_ms) * accel;
+    elapsed_ms = static_cast<uint32_t>(millis() - start_ms) * accel; //elapsed_ms > total_ms if not tick()ed enough
     remaining_ms = elapsed_ms <= total_ms ? total_ms - elapsed_ms : 0;
     if (remaining_ms == 0 || (is_synchronous() && am.is_txt_mode() && am.get_key() != 0)) running = false;
     if (is_synchronous()) {

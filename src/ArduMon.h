@@ -118,7 +118,7 @@ public:
       case Error::SEND_OVERFLOW: return F("send_overflow");
       case Error::BAD_CMD: return F("bad command");
       case Error::BAD_ARG: return F("bad argument");
-      case Error::BAD_HANDLER: return F("error handling command");
+      case Error::BAD_HANDLER: return F("handler error");
       case Error::BAD_PACKET: return F("bad packet");
       case Error::PARSE_ERR: return F("parse error");
       case Error::UNSUPPORTED: return F("unsupported operation");

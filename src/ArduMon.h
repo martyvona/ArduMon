@@ -39,7 +39,7 @@
 #endif
 
 #ifndef ARDUINO
-class ArduMonStream {
+class ArduMonStream { //shim for Arduino Stream in native host build
 public:
   virtual ~ArduMonStream() {}
   virtual int16_t available() = 0;
@@ -50,6 +50,10 @@ public:
 };
 #endif
 
+//ArduMon: yet another Arduino serial command library
+//
+//see https://github.com/martyvona/ArduMon/blob/main/README.md
+//
 //max_num_cmds is the maximum number of commands that can be registered
 //
 //recv_buf_sz is the recieve buffer size in bytes
@@ -192,24 +196,10 @@ public:
   //* sends the error message to the default Serial port on Arduino in binary mode (unless that Serial port is also the
   //  stream used for binary communication, in which case the error message is swallowed)
   //* prints the error message to the console otherwise (native binary mode)
-  handler_t get_default_error_handler() {
-    return [](ArduMon &am){
-      if (am.is_binary_mode()) {
-#if ARDUINO
-        if (am.stream != &Serial) Serial.println(am.err_msg(am.clear_err()));
-#else
-        printf("%s\n", am.err_msg(am.clear_err()));
-#endif
-      } else {
-        const Error e = am.clear_err();
-        am.send_CRLF().send_raw(am.err_msg(e)).send_CRLF(true); 
-      }
-      return true;
-    };
-  }
+  handler_t get_default_error_handler() { return get_default_error_handler_impl(); }
 
   //install the default error handler returned by get_default_error_handler()
-  ArduMon& set_default_error_handler() { return set_error_handler(get_default_error_handler()); }
+  ArduMon& set_default_error_handler() { return set_error_handler(get_default_error_handler_impl()); }
 
   //set an error handler that will be called automatically during end_handler() if has_err()
   //if the error handler returns true then clear_err() will be automatically called
@@ -711,6 +701,22 @@ private:
   Cmd cmds[max_num_cmds > 0 ? max_num_cmds : 1];
 
   ArduMon& fail(Error e) { if (err == Error::NONE) err = e; return *this; }
+
+  handler_t get_default_error_handler_impl() {
+    return [](ArduMon &am){
+      if (am.is_binary_mode()) {
+#if ARDUINO
+        if (am.stream != &Serial) Serial.println(am.err_msg(am.clear_err()));
+#else
+        printf("%s\n", am.err_msg(am.clear_err()));
+#endif
+      } else {
+        const Error e = am.clear_err();
+        am.send_CRLF().send_raw(am.err_msg(e)).send_CRLF(true); 
+      }
+      return true;
+    };
+  }
 
   ArduMon& set_handler(handler_t &which, const handler_t handler, const uint8_t runnable_flag)  {
     which = handler;

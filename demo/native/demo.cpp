@@ -255,8 +255,10 @@ int main(int argc, const char **argv) {
     if (com_fileno < 0) { perror(("error opening " + com_path).c_str()); exit(1); }
     struct termios t;
     if (tcgetattr(com_fileno, &t) != 0) { perror(("error getting attribs on " + com_path).c_str()); exit(1); }
+    if (cfsetspeed(&t, B115200) != 0) { perror(("error setting 115200 baud on " + com_path).c_str()); exit(1); }
     t.c_iflag &= ~(IXON | IXOFF | IXANY); //disable software flow control (XON/XOFF)
     t.c_cflag &= ~CRTSCTS; // disable hardware flow control (RTS/CTS)
+    t.c_cflag &= ~HUPCL; // disable "hang up on close" which twiddles DTR and causes the Arduino to reset on connect
     if (tcsetattr(com_fileno, TCSANOW, &t) != 0) { perror(("error setting attribs on " + com_path).c_str()); exit(1); }
   }
 

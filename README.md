@@ -44,7 +44,7 @@ Most of the ArduMon APIs return a reference to the ArduMon object itself, which 
 
 In binary mode ArduMon uses an 8 bit checksum for basic (but fallible) communication error detection.  There is no built in correction of communication errors, e.g. an ACK/NACK protocol, retries, etc.  The demo shows an example of invoking a command to set a parameter and then verifying that the parameter was set as intended by invoking another command to read back the parameter value.  This is not very efficient and is still susceptible to several types of failure.  ArduMon is intended to be simple and to support both text and binary communication for rapid development.  For high reliability binary communication consider switching to [CAN bus](https://en.wikipedia.org/wiki/CAN_bus), which has built-in error detection and correction.
 
-Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  Automation can do similar if necessary in binary mode.  Only one command is handled at a time.  If a new command starts coming in while one is still being handled then the new command will start to fill the Arduino serial input buffer, which is typically 64 bytes.  Once the Arduino serial input buffer fills, further received bytes will be silently dropped; the Arduino serial receive interrupt unfortunately [does not signal overflow](https://arduino.stackexchange.com/a/14035).  Be aware that operating systems also traditionally offer both [hardware](https://en.wikipedia.org/wiki/RTS/CTS) (RTS/CTS) and [software](https://en.wikipedia.org/wiki/Software_flow_control) (XON/XOFF) flow control for serial ports.  In most modern situations these should be disabled by default, but it is best to ensure this is the case when using ArduMon to communicate with a PC.  Otherwise communication could be inadvertently interrupted, particularly in binary mode with software flow control, where transmission from the PC would be halted whenever the XOFF character (ASCII 19) is received, meaning the communication channel is not [8-bit clean](https://en.wikipedia.org/wiki/8-bit_clean).  The [native demo](./demo/native/demo.cpp) shows one way to ensure serial port flow control is disabled using the `tcsetattr()` UNIX API; another method is to use the `stty` command.
+Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  Automation can do similar if necessary in binary mode.  Only one command is handled at a time.  If a new command starts coming in while one is still being handled then the new command will start to fill the Arduino serial input buffer, which is typically 64 bytes.  Once the Arduino serial input buffer fills, further received bytes will be silently dropped; the Arduino serial receive interrupt unfortunately [does not signal overflow](https://arduino.stackexchange.com/a/14035).  Be aware that operating systems also traditionally offer both [hardware](https://en.wikipedia.org/wiki/RTS/CTS) (RTS/CTS) and [software](https://en.wikipedia.org/wiki/Software_flow_control) (XON/XOFF) flow control for serial ports.  In most modern situations these should be disabled by default, but it is best to ensure this is the case when using ArduMon to communicate with a PC.  Otherwise communication could be inadvertently interrupted, particularly in binary mode with software flow control, where transmission from the PC would be halted whenever the XOFF character (ASCII 19) is received, meaning the communication channel is not [8-bit clean](https://en.wikipedia.org/wiki/8-bit_clean).  The [native demo](./demo/native/demo.cpp) shows one way to ensure serial port flow control is disabled using the `cfmakeraw()` and `tcsetattr()` UNIX APIs; another method is to use the `stty` command.
 
 ArduMon also has an optional receive timeout (`set_recv_timeout_ms()`) which will reset the command interpreter if too much time has passed between receiving the first and last bytes of a command.  This is disabled by default; it probably makes more sense for automation than for interactive use.
 
@@ -197,12 +197,13 @@ This will run the same binary demo code as in the Arduino demos, but natively.  
 
 It's also possible to use `demo_client_native` to run the binary demo but connected to an Arduino that's running the binary server demo.
 
-First, compile and upload the binary server demo but with the `BIN_RX_PIN` and `BIN_TX_PIN` `#define`s commented out in `demo/demo.h`.  This will configure the Arduino binary server to use the default Serial port (the one connected to the Arduino USB interface) for binary communication, and will disable logging.  Or, leave those `#define`s in place and use an external USB-to-serial converter to connect the Serial1 interface on pins 10 (RX) and 11 (TX) to the PC.
+First, compile and upload the binary server demo but with `#define BIN_USE_SERIAL0` enabled (i.e. *un*-commented) in `binary_server.ino`.  This will configure the Arduino binary server to use the default Serial port (the one connected to the Arduino USB interface) for binary communication, and will disable logging.  Or, leave `BIN_USE_SERIAL0` disabled and use an external USB-to-serial converter to connect the Serial1 interface on pins 10 (RX) and 11 (TX) to the PC.
 
 Then run
 
 ```
 cd demo/native
+./build_native.sh
 ./demo_client_native PORT
 ```
 
@@ -341,15 +342,17 @@ By default most Arduino boards will automatically reset when you connect to them
 
 Depending on what you're doing, this might either be a good or bad thing: it can be nice to start fresh each time you connect to the board, but it could also be a no-go for applications that cannot be interrupted.
 
-You can disable this auto-reset behavior with [hardware](https://astroscopic.com/blog/disable-arduinos-auto-reset-connection) [modifications](https://raspberrypi.stackexchange.com/a/22196) to your Arduino, such as adding a 10uF capacitor between `GND` and `RESET`.  But doing that will make uploading firmware by USB more annoying, as the Arduino firmware uploader utilizes DTR to automatically reset the board at the right time in the programming cycle.
+You can disable this auto-reset behavior with [hardware](https://astroscopic.com/blog/disable-arduinos-auto-reset-connection) [modifications](https://raspberrypi.stackexchange.com/a/22196) to your Arduino, such as adding a 10uF capacitor between `GND` and `RESET`, or a 120Ohm pullup resistor on `RESET`.  Normally the Arduino firmware uploader utilizes DTR to automatically reset the board, but if you add the capacitor (vs the resistor), you can still manually push the reset button on the Arduino.
 
-In most cases it should also be possible to disable the DTR behavior of the serial port.  On Linux, run
+In most cases it should also be possible to disable the DTR behavior of the serial port in software, but with some caveats.  On Linux, run
 
 ```
 stty -F /dev/ttyUSB0 -hupcl # replace ttyUSB0 with the actual serial port shown in arduino-cli board list
 ```
 
-That also *almost* works on OS X, however, there is a twist: OS X appears to reset the serial port settings whenever the port is closed.  The `stty` command itself opens the port temporarily, but then closes it.  If you then run your serial terminal program (e.g. [minicom](#connecting-with-minicom) or [screen](#connecting-with-screen) the change you just made with `stty` will have already been lost.  One [workaround](https://apple.stackexchange.com/a/339704) is to open the port *before* running `stty`, hold it open while both `stty` and your serial terminal (e.g. `minicom`) run, and then close it at the end:
+though be aware that the `stty` command itself will temporarily open the port, and thus reset the Arduino.  In some contexts this could be tolerable e.g. if the `stty` command is configured to run at system startup.
+
+The `stty` approach also *almost* works on OS X, however, there is a twist: OS X appears to reset the serial port settings whenever the port is closed.  The `stty` command opens the port temporarily, but then closes it.  If you then run your serial terminal program (e.g. [minicom](#connecting-with-minicom) or [screen](#connecting-with-screen) the change you just made with `stty` will have already been lost.  One [workaround](https://apple.stackexchange.com/a/339704) is to open the port *before* running `stty` (unfortunately this initial opening of the port will reset the Arduino), hold it open while both `stty` and your serial terminal (e.g. `minicom`) run, and then close it at the end:
 
 ```
 exec 3<>/dev/cu.usbserial-10 # open port; replace cu.usbserial-10 with actual port shown in arduino-cli board list
@@ -358,16 +361,9 @@ minicom -D /dev/cu.usbserial-10
 exec 3<&- # close port
 ```
 
-The `HUPCL` ("hang up on close") flag can also be disabled programmatically, see the [native demo](./demo/native/demo.cpp) code for an example.
+The `HUPCL` ("hang up on close") flag can also be disabled programmatically using the `tcsetattr()` UNIX API, however, doing that is subject to the same chicken-and-egg issue as above: the port must be opened before calling `tcsetattr()`. 
 
-It's unclear if it's possible to disalbe the the auto-reset DTR behavior on Windows without custom code.  However, there are reports that it can be done [programmatically](https://forum.arduino.cc/t/disable-auto-reset-by-serial-connection/28248/5):
-
-```
-DCB dcb;
-GetCommState(m_hCom, &dcb);
-dcb.fDtrControl = DTR_CONTROL_DISABLE;
-SetCommState(m_hCom, &dcb);
-```
+It's unclear if it's possible to disalbe the the auto-reset DTR behavior on Windows without custom code.  However, there are reports that it can be done [programmatically](https://forum.arduino.cc/t/disable-auto-reset-by-serial-connection/28248/5).
 
 ### Connecting with Minicom
 

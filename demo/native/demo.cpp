@@ -86,7 +86,10 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 #define AM_STREAM demo_stream
 #include "../demo.h"
 
-#ifndef BINARY_CLIENT
+#ifdef BINARY_CLIENT
+struct termios orig_attribs;
+bool read_orig_attribs = false;
+#else
 int listen_fileno = -1;
 #endif
 int com_fileno = -1;
@@ -123,6 +126,12 @@ void sleep_ms(const uint32_t ms) { std::this_thread::sleep_for(std::chrono::mill
 
 void cleanup() {
   if (com_fileno >= 0) {
+#ifdef BINARY_CLIENT
+    if (read_orig_attribs) {
+      std::cout << "restoring attributes on " << com_path << "\n";
+      if (tcsetattr(com_fileno, TCSANOW, &orig_attribs) != 0) perror(("error setting attribs on " + com_path).c_str());
+    }
+#endif
     std::cout << "closing " << com_path << "\n";
     close(com_fileno);
     com_fileno = -1;
@@ -251,15 +260,28 @@ int main(int argc, const char **argv) {
       perror(("error connecting to " + com_path).c_str()); exit(1);
     }
   } else { //com_path is a serial port file, not a UNIX socket
+
     com_fileno = open(com_path.c_str(), O_RDWR | O_NOCTTY);
     if (com_fileno < 0) { perror(("error opening " + com_path).c_str()); exit(1); }
+
     struct termios t;
     if (tcgetattr(com_fileno, &t) != 0) { perror(("error getting attribs on " + com_path).c_str()); exit(1); }
+    memcpy(&orig_attribs, &t, sizeof(struct termios)); read_orig_attribs = true;
+
+    cfmakeraw(&t); //put the serial port in "raw" binary mode
+
     if (cfsetspeed(&t, B115200) != 0) { perror(("error setting 115200 baud on " + com_path).c_str()); exit(1); }
-    t.c_iflag &= ~(IXON | IXOFF | IXANY); //disable software flow control (XON/XOFF)
-    t.c_cflag &= ~CRTSCTS; // disable hardware flow control (RTS/CTS)
-    t.c_cflag &= ~HUPCL; // disable "hang up on close" which twiddles DTR and causes the Arduino to reset on connect
+
+    //disabling HUPCL (hang up on close) like this should be equivalent to stty -hupcl
+    //t.c_cflag &= ~HUPCL;
+    //that should prevent the serial port from twiddling DTR on connect and consequently resetting the Arduino
+    //however, it is now too late: we already opened the port and the twiddling already occurred!
+
     if (tcsetattr(com_fileno, TCSANOW, &t) != 0) { perror(("error setting attribs on " + com_path).c_str()); exit(1); }
+
+    //if the Arduino was reset when we opened the serial port we now need to wait a bit
+    std::cerr << "delaying 5s...\n";
+    sleep_ms(5000);
   }
 
 #endif
@@ -307,14 +329,6 @@ int main(int argc, const char **argv) {
 
     sleep_ms(1);
   }
-
-  std::cout << "closing " << com_path << "\n";
-  close(com_fileno); com_fileno = -1;
-
-#ifndef BINARY_CLIENT
-  close(listen_fileno); listen_fileno = -1;
-  unlink(com_path.c_str());
-#endif
 
   exit(0);
 }

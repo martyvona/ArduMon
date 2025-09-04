@@ -33,7 +33,7 @@ ArduMon also
 * has a [fluent](https://en.wikipedia.org/wiki/Fluent_interface) API (i.e. method chaining)
 * uses no heap allocations
 * is implemented in a single header file
-* supports multiple instances on different serial ports.
+* allows multiple distinct instances on different serial ports; e.g. implement *both* a text CLI on `Serial0` for interaction with the user over USB *and* a separate binary interface on `Serial1` to communicate with another Arduino.
 
 In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `end_handler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `is_binary_mode()` and `is_txt_mode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example of this in the `AM_timer::get()` command.
 

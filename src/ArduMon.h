@@ -1506,13 +1506,18 @@ private:
         break; //handle at most one command per update() 
       }
 
-      if (*recv_ptr == '\b') { //text mode backspace
+      if (*recv_ptr == '\b' || *recv_ptr == 0x7F) { //text mode backspace or DEL
         if (recv_ptr > recv_buf) {
           if (flags&F_TXT_ECHO) { vt100_move_rel(1, VT100_LEFT); vt100_clear_right(); }
           --recv_ptr;
         }
         continue;
       }
+
+      //debug; this is how to see e.g. that hitting backspace in arduino-cli monitor on OS X actually sends DEL...
+      //write_char('\r'); write_char('\n');
+      //write_char(to_hex((*recv_ptr)>>4)); write_char(to_hex(*recv_ptr));
+      //write_char('\r'); write_char('\n');
 
       //text mode command character
       

@@ -424,3 +424,8 @@ Select your bord in the "Select Board" dropdown.  Then select Tools -> Serial Mo
 
 The serial monitor tool within the Arduino IDE does not support ANSI/VT100 terminal emulation, so some features of ArduMon, such as hitting the up arrow to re-enter the previous command, will not be usable.
 
+### Connecting with PuTTY
+
+[PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/) is a Windows terminal emulator and ssh/telnet client (a Linux/Unix port is also available).
+
+[Download](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) and run `putty.exe`.  In the configuration window, select "Serial" as the connection type, set the COM port shown in `arduino-cli board list`, set the baud rate to 115200 or whatever you have configured your Arduino serial port to use, and in the settings pane on the left set Connection -> Serial -> Flow Control -> None.  Then click Open.

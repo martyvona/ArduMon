@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 if [ $# -lt 2 ]; then
   echo "USAGE: upload-stm32-swd.sh FQBN BOARD"

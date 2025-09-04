@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # https://arduino.stackexchange.com/questions/31190/detailed-analyse-of-memory-usage
 

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 echo "building text server for Arduino platforms..."
 ./build-avr.sh uno || exit

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ../build-avr.sh uno || exit
 ../build-esp32.sh arduino:esp32:nano_nora || exit

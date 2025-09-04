@@ -206,7 +206,7 @@ cd demo/native
 ./demo_client_native PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial conveter, if you are using one).
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial conveter, if you are using one).
 
 ## Building the Demo for Arduino
 
@@ -269,7 +269,7 @@ cd demo
 ./upload-avr.sh arduino:avr:uno PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
 
@@ -284,7 +284,7 @@ cd demo
 ./upload-esp32.sh arduino:esp32:nano_nora PORT
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
 
 To upload the binary server or client demos, follow the same procedure but change to the `demo/binary_server` or `demo/binary_client` directory first and prefix the upload command with `../` instead of `./`.
 
@@ -335,6 +335,40 @@ arduino-cli board list
 
 The example commands below expect there to be exactly one Arduino connected; if there is more than one then you will need to specify the one to use exactly instead of using a wildcard as in the example commands below.
 
+### Disabling Arduino Auto-Reset
+
+By default most Arduino boards will automatically reset when you connect to them via a serial terminal program.  This is by design; it leverages the default behavior of typical serial port drivers to pull the DTR (data terminal ready) line low when the port is opened.  (Though "modem control" signals like DTR originated in antiquity and are no longer physical pins [as they once were](https://www.cable-tester.com/rs232-pin-out), they are still emulated by USB serial chips like those used on Arduino boards.)
+
+Depending on what you're doing, this might either be a good or bad thing: it can be nice to start fresh each time you connect to the board, but it could also be a no-go for applications that cannot be interrupted.
+
+You can disable this auto-reset behavior with [hardware](https://astroscopic.com/blog/disable-arduinos-auto-reset-connection) [modifications](https://raspberrypi.stackexchange.com/a/22196) to your Arduino, such as adding a 10uF capacitor between `GND` and `RESET`.  But doing that will make uploading firmware by USB more annoying, as the Arduino firmware uploader utilizes DTR to automatically reset the board at the right time in the programming cycle.
+
+In most cases it should also be possible to disable the DTR behavior of the serial port.  On Linux, run
+
+```
+stty -F /dev/ttyUSB0 -hupcl # replace ttyUSB0 with the actual serial port shown in arduino-cli board list
+```
+
+That also *almost* works on OS X, however, there is a twist: OS X appears to reset the serial port settings whenever the port is closed.  The `stty` command itself opens the port temporarily, but then closes it.  If you then run your serial terminal program (e.g. [minicom](#connecting-with-minicom) or [screen](#connecting-with-screen) the change you just made with `stty` will have already been lost.  One [workaround](https://apple.stackexchange.com/a/339704) is to open the port *before* running `stty`, hold it open while both `stty` and your serial terminal (e.g. `minicom`) run, and then close it at the end:
+
+```
+exec 3<>/dev/cu.usbserial-10 # open port; replace cu.usbserial-10 with actual port shown in arduino-cli board list
+stty -f /dev/cu.usbserial-10 -hupcl
+minicom -D /dev/cu.usbserial-10
+exec 3<&- # close port
+```
+
+The `HUPCL` ("hang up on close") flag can also be disabled programmatically, see the [native demo](./demo/native/demo.cpp) code for an example.
+
+It's unclear if it's possible to disalbe the the auto-reset DTR behavior on Windows without custom code.  However, there are reports that it can be done [programmatically](https://forum.arduino.cc/t/disable-auto-reset-by-serial-connection/28248/5):
+
+```
+DCB dcb;
+GetCommState(m_hCom, &dcb);
+dcb.fDtrControl = DTR_CONTROL_DISABLE;
+SetCommState(m_hCom, &dcb);
+```
+
 ### Connecting with Minicom
 
 To install [minicom](https://en.wikipedia.org/wiki/Minicom) on OS X:
@@ -352,12 +386,12 @@ sudo apt install minicom # or use the package manger for your distribution
 To connect with minicom:
 
 ```
-minicom -D PORT -b 115200
+minicom -D PORT -b BAUD
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, N is the serial port number shown in `arduino-cli board list`, and `BAUD` is 115200 or whatever you have configured your Arduino serial port to use.
 
-To exit minicom hit ctrl-A (option-Z on OS X), then Q.  On OS X, is If you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
+To exit minicom hit ctrl-A (option-Z on OS X), then Q.  On OS X, if you haven't already, you will need to check "use option as meta key" in terminal -> settings -> profiles -> keyboard.
 
 If nothing happens when you type, ensure hardware flow control is OFF: ctrl-A (option-Z on OS X), then O, then serial port setup, then F to toggle hardware flow control.  You can then "save setup as dfl" to persist this setting.
 
@@ -380,10 +414,10 @@ sudo apt install screen # or use the package manger for your distribution
 To connect with screen:
 
 ```
-screen PORT 115200
+screen PORT BAUD
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, N is the serial port number shown in `arduino-cli board list`, and `BAUD` is 115200 or whatever you have configured your Arduino serial port to use.
 
 To exit screen hit ctrl-A then ctrl-\ (ctrl-backslash) then Y.
 
@@ -401,26 +435,26 @@ To connect with c-kermit:
 
 ```
 cd demo
-./kermit.scr PORT 115200
+./kermit.scr PORT BAUD
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, N is the serial port number shown in `arduino-cli board list`, and `BAUD` is 115200 or whatever you have configured your Arduino serial port to use.
 
 To exit kermit hit ctrl-\ then Q.
 
 ### Connecting with `arduino-cli monitor`
 
 ```
-arduino-cli monitor --port PORT --config 115200 --quiet --raw
+arduino-cli monitor --port PORT --config BAUD --quiet --raw
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, where n is the serial port number shown in `arduino-cli board list`.
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, N is the serial port number shown in `arduino-cli board list`, and `BAUD` is 115200 or whatever you have configured your Arduino serial port to use.
 
 To exit the arduino-cli monitor hit ctrl-C.  You may need to then enter the `reset` command to reinitialize your terminal.
 
 ### Connecting with the Arduino IDE Serial Monitor
 
-Select your bord in the "Select Board" dropdown.  Then select Tools -> Serial Monitor.  Make sure the baud rate is set to 115200.
+Select your bord in the "Select Board" dropdown.  Then select Tools -> Serial Monitor.  Make sure the baud rate is set to 115200 or whatever you have configured your Arduino serial port to use.
 
 The serial monitor tool within the Arduino IDE does not support ANSI/VT100 terminal emulation, so some features of ArduMon, such as hitting the up arrow to re-enter the previous command, will not be usable.
 

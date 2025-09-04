@@ -46,11 +46,13 @@
 #define BINARY false
 #endif
 
-//comment these out to compile the binary demo (client or server) to use default serial port for binary communication
-//this will disable debug prints, but can be useful e.g. to run the binary server on an Arduino
-//connected by USB to the binary client running natively on the host
+//define BIN_USE_SERIAL0 to compile the binary demo (client or server) to use default serial port for binary comms
+//this will disable debug prints, but can be useful e.g. to run the binary server on an Arduino connected by USB
+//to the binary client running natively on the host
+#ifndef BIN_USE_SERIAL0
 #define BIN_RX_PIN 10
 #define BIN_TX_PIN 11
+#endif
 
 #define WITH_INT64 true
 #define WITH_FLOAT true
@@ -69,7 +71,7 @@
 //e.g. run the binary server this way and connect the Arduino by USB to a host
 //and then run the binary client natively on the host
 //in this situation we need to disable the debug prints as they would also use the default serial port
-#if defined(ARDUINO) && BINARY && !defined(BIN_RX_PIN)
+#if defined(ARDUINO) && BINARY && defined(BIN_USE_SERIAL0)
 #define print(v) {}
 #define println(v) {}
 #else
@@ -83,7 +85,7 @@ using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, W
 
 #ifdef ARDUINO
 
-#if BINARY && defined(BIN_RX_PIN)
+#if BINARY && !defined(BIN_USE_SERIAL0)
 
 //connect BIN_TX_PIN of client Arduino to BIN_RX_PIN of server Arduino and vice-versa
 #ifdef ESP32
@@ -95,12 +97,12 @@ using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, W
 SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 #endif //ESP32
 
-#else //text mode demo, or binary mode but BIN_RX_PIN not defined
+#else //text mode demo, or binary mode but BIN_USE_SERIAL0
 
 //connect an Arduino by USB and run minicom or screen on USB serial port as described in README.md
 #define AM_STREAM Serial
 
-#endif //BINARY && defined(BIN_RX_PIN)
+#endif //BINARY && !defined(BIN_USE_SERIAL0)
 
 #endif //ARDUINO (AM_STREAM is defined externally in demo.cpp for native build)
 
@@ -132,13 +134,13 @@ void setup() {
   Serial.begin(BAUD); //default hardware serial (i.e. usb port) is used in all cases
   //binary client and server can optionally also use a separate hardware or software serial port
   //for the binary connection between two Arduinos
-#if BINARY && defined(BIN_RX_PIN)
+#if BINARY && !defined(BIN_USE_SERIAL0)
 #ifdef ESP32
   AM_STREAM.begin(BAUD, SERIAL_8N1, BIN_RX_PIN, BIN_TX_PIN);
 #else
   AM_STREAM.begin(BAUD);
 #endif //ESP32
-#endif //BINARY && defined(BIN_RX_PIN)
+#endif //BINARY && !defined(BIN_USE_SERIAL0)
 #endif //ARDUINO
 
 #ifndef BASELINE_MEM

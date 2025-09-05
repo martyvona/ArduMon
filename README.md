@@ -33,9 +33,9 @@ ArduMon also
 * has a [fluent](https://en.wikipedia.org/wiki/Fluent_interface) API (i.e. method chaining)
 * uses no heap allocations
 * is implemented in a single header file
-* allows multiple distinct instances on different serial ports; e.g. implement *both* a text CLI on `Serial0` for interaction with the user over USB *and* a separate binary interface on `Serial1` to communicate with another Arduino.
+* allows multiple instances; e.g. a text CLI on `Serial0` for user interaction and a binary packet interface on `Serial1` to communicate with another Arduino.
 
-In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `end_handler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `is_binary_mode()` and `is_txt_mode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example of this in the `AM_timer::get()` command.
+In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `end_handler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `is_binary_mode()` and `is_text_mode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example of this in the `AM_timer::get()` command.
 
 In text mode the entire received command string must fit in the ArduMon receive buffer, the size of which is set at compile time.  There is no limit on the amount of data that can be returned by a command in text mode, though sending may block the handler if enough data is sent fast enough relative to the Arduino serial send buffer size, typically 64 bytes, and the serial baudrate.   The ArduMon send buffer is not used in text mode, and can be disabled at compile time if binary mode will not be used.
 

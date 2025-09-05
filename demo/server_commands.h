@@ -40,7 +40,7 @@ bool strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, 
 bool echo_bool(AM &am) {
   bool v; if (!am.recv().recv(&v)) return false;
   AM::BoolStyle style = AM::BoolStyle::TRUE_FALSE; bool upper_case = false;
-  if (am.is_txt_mode()) {
+  if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
     if (argc > 2) {
       const char *style_str;
@@ -59,7 +59,7 @@ bool echo_bool(AM &am) {
 template <typename T> bool echo_int(AM &am) {
   T v; if (!am.recv().recv(&v)) return false;
   bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
-  if (am.is_txt_mode()) {
+  if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
     if (argc > 2 && !am.recv(&hex)) return false;
     if (argc > 3 && !am.recv(&width)) return false;
@@ -76,7 +76,7 @@ template <typename T> bool echo_int(AM &am) {
 template <typename T> bool echo_flt(AM &am) {
   T v; if (!am.recv().recv(&v)) return false;
   bool scientific = false; int8_t precision = -1, width = -1;
-  if (am.is_txt_mode()) {
+  if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
     if (argc > 2 && !am.recv(&scientific)) return false;
     if (argc > 3 && !am.recv(&precision)) return false;

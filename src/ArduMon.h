@@ -321,7 +321,7 @@ public:
   ArduMon& reset() { return set_binary_mode_impl(binary_mode, true, true); }
 
   bool is_binary_mode() { return binary_mode; }
-  bool is_txt_mode() { return !binary_mode; }
+  bool is_text_mode() { return !binary_mode; }
 
   //enable or disable received character echo in text mode
   ArduMon& set_txt_echo(const bool echo) {

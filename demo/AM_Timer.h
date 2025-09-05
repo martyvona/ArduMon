@@ -67,7 +67,7 @@ public:
     bin_response_code = -1;
     if (am.argc() > 6 && !am.recv(&bin_response_code)) return false;
 
-    if (am.is_txt_mode()) {
+    if (am.is_text_mode()) {
       //send()s cannot error in text mode
       am.send_raw(F("counting down from "))
         .send_raw(h).send_raw(':').send_raw(m, 2|AM::FMT_PAD_ZERO).send_raw(':').send_raw(s, 2|AM::FMT_PAD_ZERO)
@@ -95,7 +95,7 @@ public:
 
   bool send(AM &am, const uint64_t now) {
     last_send_ms = now;
-    if (am.is_txt_mode()) {
+    if (am.is_text_mode()) {
       const uint8_t h = remaining_ms / (3600 * 1000ul);
       const uint8_t m = (remaining_ms - h * 3600 * 1000ul) / (60 * 1000ul);
       const uint8_t s = (remaining_ms - (h * 3600 + m * 60) * 1000ul) / 1000ul;
@@ -128,7 +128,7 @@ public:
     const uint64_t now = millis();
     elapsed_ms = static_cast<uint32_t>(millis() - start_ms) * accel; //elapsed_ms > total_ms if not tick()ed enough
     remaining_ms = elapsed_ms <= total_ms ? total_ms - elapsed_ms : 0;
-    if (remaining_ms == 0 || (is_synchronous() && am.is_txt_mode() && am.get_key() != 0)) running = false;
+    if (remaining_ms == 0 || (is_synchronous() && am.is_text_mode() && am.get_key() != 0)) running = false;
     if (is_synchronous()) {
       if (now - last_send_ms >= sync_throttle_ms || !running) send(am, now);
       if (!running) am.end_handler();

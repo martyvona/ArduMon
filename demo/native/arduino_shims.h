@@ -29,11 +29,11 @@
 
 using __FlashStringHelper = char;
 
-static const __FlashStringHelper *F(const char *p) { return p; }
+const __FlashStringHelper *F(const char *p) { return p; }
 
 template <typename T> static const T pgm_read_byte(const T *p) { return *p; }
 
-static int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
+int strcmp_P(const char *a, const char *b) { return strcmp(a, b); }
 
 uint64_t millis() {
   static const auto start = std::chrono::steady_clock::now();

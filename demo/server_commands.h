@@ -23,6 +23,19 @@
 
 /* server command handlers ********************************************************************************************/
 
+#ifdef ARDUINO
+//the Arduino platform defines strcmp_P() where both arguments are const char *
+//this API originated from avr-libc: https://www.nongnu.org/avr-libc/user-manual/group__avr__pgmspace.html
+//the second argument is assumed to be in progmem on AVR; non-AVR platforms just make this an alias to strcmp()
+//but it can be more convenient for that arg to be a const __FlashStringHelper* made by the F() macro
+#ifdef strcmp_P //some platforms like STM32 define strcmp_P as a macro
+#undef strcmp_P
+#define strcmp_P(a, b) strcmp((a), reinterpret_cast<const char *>(b))
+#else //strcmp_P is not a macro: overload it instead
+int strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, reinterpret_cast<const char *>(b)); }
+#endif
+#endif //on native builds instead use strcmp_P() shim defined in native/arduino_shims.h
+
 AM_Timer<AM> timer;
 
 bool help(AM &am) { return am.send_cmds().end_handler(); }
@@ -32,10 +45,6 @@ bool argc(AM &am) { return am.send(am.argc()).end_handler(); }
 bool gcc(AM &am) { const char *name; return am.recv().recv(&name).send(am.get_cmd_code(name)).end_handler(); }
 
 template <typename T> bool echo(AM &am) { T v; return am.recv().recv(&v).send(v).end_handler(); }
-
-#ifdef __AVR__
-bool strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, reinterpret_cast<const char *>(b)); }
-#endif
 
 bool echo_bool(AM &am) {
   bool v; if (!am.recv().recv(&v)) return false;

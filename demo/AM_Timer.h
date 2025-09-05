@@ -52,20 +52,20 @@ public:
   bool start(AM &am) {
 
     running = false;
-    if (!am.recv()) return false; //skip over command token or code
+    if (!am.skip()) return false; //skip over command token or code
 
     uint8_t h, m, s;
-    if (!am.recv(&h).recv(&m).recv(&s)) return false;
+    if (!am.recv(h).recv(m).recv(s)) return false;
     total_ms = remaining_ms = (h * 3600 + m * 60 + s) * 1000ul;
 
     accel = 1;
-    if (am.argc() > 4 && !am.recv(&accel)) return false;
+    if (am.argc() > 4 && !am.recv(accel)) return false;
 
     sync_throttle_ms = 100;
-    if (am.argc() > 5 && !am.recv(&sync_throttle_ms)) return false;
+    if (am.argc() > 5 && !am.recv(sync_throttle_ms)) return false;
 
     bin_response_code = -1;
-    if (am.argc() > 6 && !am.recv(&bin_response_code)) return false;
+    if (am.argc() > 6 && !am.recv(bin_response_code)) return false;
 
     if (am.is_text_mode()) {
       //send()s cannot error in text mode

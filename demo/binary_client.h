@@ -89,7 +89,7 @@ protected:
     return am.send(static_cast<uint8_t>(0)).send(cmd_name).send_packet();
   }
   bool recv(AM& am) {
-    if (!am.recv(&cmd_code).end_handler()) return false;
+    if (!am.recv(cmd_code).end_handler()) return false;
     print(F("gcc received ")); print(static_cast<int>(cmd_code)); println();
     return cmd_code >= 0;
   }
@@ -107,7 +107,7 @@ protected:
   }
   bool recv(AM& am) {
     uint8_t argc; const uint8_t expected = 6;
-    if (!am.recv(&argc).end_handler()) return false;
+    if (!am.recv(argc).end_handler()) return false;
     if (argc != expected) print(F("ERROR: "));
     print(F("argc received ")); print(static_cast<int>(argc)); print(F(", expected ")); print(expected); println();
     return argc == expected;
@@ -137,7 +137,7 @@ protected:
   }
   bool recv(AM& am) {
     float param;
-    if (!am.recv(&param).end_handler()) return false;
+    if (!am.recv(param).end_handler()) return false;
     if (param != val) print(F("ERROR: "));
     print(F("gfp received ")); print(param); print(F(", expected ")); print(val); println();
     return param == val;
@@ -175,9 +175,9 @@ protected:
   }
 
   bool recv(AM& am) {
-    if (resp_code >= 0 && resp_code <= 255 && !am.recv()) return false; //skip command code
+    if (resp_code >= 0 && resp_code <= 255 && !am.skip()) return false; //skip command code
     uint32_t total_ms, elapsed_ms;
-    if (!am.recv(&total_ms).recv(&elapsed_ms).recv(&remaining_ms).end_handler()) return false;
+    if (!am.recv(total_ms).recv(elapsed_ms).recv(remaining_ms).end_handler()) return false;
     print(F("received total_ms=")); print(total_ms); print(F(", elapsed_ms=")); print(elapsed_ms);
     print(F(", remaining_ms=")); print(remaining_ms); println();
     return true;

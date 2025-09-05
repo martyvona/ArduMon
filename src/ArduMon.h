@@ -395,47 +395,47 @@ public:
   uint8_t argc() { return arg_count; }
 
   //skip the next n tokens in text mode; skip the next n bytes in binary mode
-  ArduMon& recv(const uint8_t n = 1) { next_tok(n); return *this; }
+  ArduMon& skip(const uint8_t n = 1) { next_tok(n); return *this; }
 
-  //receive a character
-  ArduMon& recv(char *v) {
+  //receive a character (named recv_char() instead of recv(char &v) to disambiguate from recv(uint8_t &v))
+  ArduMon& recv_char(char &v) {
     const char *ptr = CCS(next_tok(1));
     if (!ptr || (*(ptr + 1) != 0)) return fail(Error::BAD_ARG);
-    *v = *ptr;
+    v = *ptr;
     return *this;
   }
 
   //receive a string
-  ArduMon& recv(const char* *v) {
+  ArduMon& recv(const char* &v) {
     const char *ptr = CCS(next_tok(0));
     if (!ptr) return fail(Error::BAD_ARG);
-    *v = ptr;
+    v = ptr;
     return *this;
   }
 
   //binary mode: receive a byte with value 0 (false) or nonzero (true)
   //text mode: receive "true", "false", "t", "f", "0", "1", "yes", "no", "y", "n" or uppercase equivalents
-  ArduMon& recv(bool *v) { return parse_bool(next_tok(1), v); }
+  ArduMon& recv(bool &v) { return parse_bool(next_tok(1), &v); }
 
   //binary mode: receive an integer of the indicated size
   //text mode: receive a decimal or hexadecimal integer
   //if hex == true then always interpret as hex in text mode, else interpret as hex iff prefixed with 0x or 0X
   //Error::UNSUPPORTED if recv([u]int64_t) but !with_int64
-  ArduMon& recv( uint8_t *v, const bool hex = false) { return parse_int(next_tok(1), BP(v), false, 1, hex); }
-  ArduMon& recv(  int8_t *v, const bool hex = false) { return parse_int(next_tok(1), BP(v), true,  1, hex); }
-  ArduMon& recv(uint16_t *v, const bool hex = false) { return parse_int(next_tok(2), BP(v), false, 2, hex); }
-  ArduMon& recv( int16_t *v, const bool hex = false) { return parse_int(next_tok(2), BP(v), true,  2, hex); }
-  ArduMon& recv(uint32_t *v, const bool hex = false) { return parse_int(next_tok(4), BP(v), false, 4, hex); }
-  ArduMon& recv( int32_t *v, const bool hex = false) { return parse_int(next_tok(4), BP(v), true,  4, hex); }
-  ArduMon& recv(uint64_t *v, const bool hex = false) { return parse_int(next_tok(8), BP(v), false, 8, hex); }
-  ArduMon& recv( int64_t *v, const bool hex = false) { return parse_int(next_tok(8), BP(v), true,  8, hex); }
+  ArduMon& recv( uint8_t &v, const bool hex = false) { return parse_int(next_tok(1), BP(&v), false, 1, hex); }
+  ArduMon& recv(  int8_t &v, const bool hex = false) { return parse_int(next_tok(1), BP(&v), true,  1, hex); }
+  ArduMon& recv(uint16_t &v, const bool hex = false) { return parse_int(next_tok(2), BP(&v), false, 2, hex); }
+  ArduMon& recv( int16_t &v, const bool hex = false) { return parse_int(next_tok(2), BP(&v), true,  2, hex); }
+  ArduMon& recv(uint32_t &v, const bool hex = false) { return parse_int(next_tok(4), BP(&v), false, 4, hex); }
+  ArduMon& recv( int32_t &v, const bool hex = false) { return parse_int(next_tok(4), BP(&v), true,  4, hex); }
+  ArduMon& recv(uint64_t &v, const bool hex = false) { return parse_int(next_tok(8), BP(&v), false, 8, hex); }
+  ArduMon& recv( int64_t &v, const bool hex = false) { return parse_int(next_tok(8), BP(&v), true,  8, hex); }
 
   //binary mode: receive float or double
   //text mode: receive a decimal or scientific float or double
   //on AVR double is synonymous with float by default, both are 4 bytes; otherwise double may be 8 bytes
   //Error::UNSUPPORTED if sizeof(float) != sizeof(double) and recv(double) but !with_double
-  ArduMon& recv(float *v) { return parse_float(next_tok(4), v); }
-  ArduMon& recv(double *v) { return parse_float(next_tok(sizeof(double)), v); }
+  ArduMon& recv(float &v) { return parse_float(next_tok(4), &v); }
+  ArduMon& recv(double &v) { return parse_float(next_tok(sizeof(double)), &v); }
 
   //sends carriage return and line feed in text mode; noop in binary mode
   ArduMon& send_CRLF(bool force = false) {

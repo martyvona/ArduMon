@@ -42,38 +42,36 @@ bool help(AM &am) { return am.send_cmds().end_handler(); }
 
 bool argc(AM &am) { return am.send(am.argc()).end_handler(); }
 
-bool gcc(AM &am) { const char *name; return am.recv().recv(&name).send(am.get_cmd_code(name)).end_handler(); }
-
-template <typename T> bool echo(AM &am) { T v; return am.recv().recv(&v).send(v).end_handler(); }
+bool gcc(AM &am) { const char *name; return am.skip().recv(name).send(am.get_cmd_code(name)).end_handler(); }
 
 bool echo_bool(AM &am) {
-  bool v; if (!am.recv().recv(&v)) return false;
+  bool v; if (!am.skip().recv(v)) return false;
   AM::BoolStyle style = AM::BoolStyle::TRUE_FALSE; bool upper_case = false;
   if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
     if (argc > 2) {
       const char *style_str;
-      if (!am.recv(&style_str)) return false;
+      if (!am.recv(style_str)) return false;
       if      (strcmp_P(style_str, F("true_false")) == 0) style = AM::BoolStyle::TRUE_FALSE;
       else if (strcmp_P(style_str, F("tf"))         == 0) style = AM::BoolStyle::TF;
       else if (strcmp_P(style_str, F("yes_no"))     == 0) style = AM::BoolStyle::YES_NO;
       else if (strcmp_P(style_str, F("yn"))         == 0) style = AM::BoolStyle::YN;
       else return false;
     }
-    if (argc > 3 && !am.recv(&upper_case)) return false;
+    if (argc > 3 && !am.recv(upper_case)) return false;
   }
   return am.send(v, style, upper_case).end_handler();
 }
 
 template <typename T> bool echo_int(AM &am) {
-  T v; if (!am.recv().recv(&v)) return false;
+  T v; if (!am.skip().recv(v)) return false;
   bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
   if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
-    if (argc > 2 && !am.recv(&hex)) return false;
-    if (argc > 3 && !am.recv(&width)) return false;
-    if (argc > 4 && !am.recv(&pad_zero)) return false;
-    if (argc > 5 && !am.recv(&pad_right)) return false;
+    if (argc > 2 && !am.recv(hex)) return false;
+    if (argc > 3 && !am.recv(width)) return false;
+    if (argc > 4 && !am.recv(pad_zero)) return false;
+    if (argc > 5 && !am.recv(pad_right)) return false;
     if (width > 31) width = 31;
   }
   const uint8_t fmt =
@@ -83,19 +81,19 @@ template <typename T> bool echo_int(AM &am) {
 }
 
 template <typename T> bool echo_flt(AM &am) {
-  T v; if (!am.recv().recv(&v)) return false;
+  T v; if (!am.skip().recv(v)) return false;
   bool scientific = false; int8_t precision = -1, width = -1;
   if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
-    if (argc > 2 && !am.recv(&scientific)) return false;
-    if (argc > 3 && !am.recv(&precision)) return false;
-    if (argc > 4 && !am.recv(&width)) return false;
+    if (argc > 2 && !am.recv(scientific)) return false;
+    if (argc > 3 && !am.recv(precision)) return false;
+    if (argc > 4 && !am.recv(width)) return false;
   }
   return am.send(v, scientific, precision, width).end_handler();
 }
 
-bool echo_char(AM &am) { return echo<char>(am); }
-bool echo_str(AM &am) { return echo<const char*>(am); }
+bool echo_char(AM &am) { char v; return am.skip().recv_char(v).send(v).end_handler(); }
+bool echo_str(AM &am) { const char* v; return am.skip().recv(v).send(v).end_handler(); }
 bool echo_u8(AM &am) { return echo_int<uint8_t>(am); }
 bool echo_s8(AM &am) { return echo_int<int8_t>(am); }
 bool echo_u16(AM &am) { return echo_int<uint16_t>(am); }
@@ -115,33 +113,33 @@ bool echo_double(AM &am) { return echo_flt<double>(am); }
 
 bool echo_multiple(AM &am) {
 
-  if (!am.recv()) return false; // skip command token/code
+  if (!am.skip()) return false; // skip command token/code
   
   const char* format;
-  if (!am.recv(&format)) return false;
+  if (!am.recv(format)) return false;
   
   const size_t len = strlen(format);
   for (size_t i = 0; i + 2 < len; i += 3) {
 
     const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
 
-    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("str")) == 0) { const char* v; if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("bll")) == 0) { bool v;        if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("u08")) == 0) { uint8_t v;     if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("s08")) == 0) { int8_t v;      if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("u16")) == 0) { uint16_t v;    if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("s16")) == 0) { int16_t v;     if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("u32")) == 0) { uint32_t v;    if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("s32")) == 0) { int32_t v;     if (!am.recv(&v).send(v)) return false; }
+    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recv_char(v).send(v)) return false; }
+    else if (strcmp_P(type, F("str")) == 0) { const char* v; if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("bll")) == 0) { bool v;        if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("u08")) == 0) { uint8_t v;     if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("s08")) == 0) { int8_t v;      if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("u16")) == 0) { uint16_t v;    if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("s16")) == 0) { int16_t v;     if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("u32")) == 0) { uint32_t v;    if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("s32")) == 0) { int32_t v;     if (!am.recv(v).send(v)) return false; }
 #ifdef WITH_INT64
-    else if (strcmp_P(type, F("u64")) == 0) { uint64_t v;    if (!am.recv(&v).send(v)) return false; }
-    else if (strcmp_P(type, F("s64")) == 0) { int64_t v;     if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp_P(type, F("u64")) == 0) { uint64_t v;    if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("s64")) == 0) { int64_t v;     if (!am.recv(v).send(v)) return false; }
 #endif
 #ifdef WITH_FLOAT
-    else if (strcmp_P(type, F("f32")) == 0) { float v;       if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp_P(type, F("f32")) == 0) { float v;       if (!am.recv(v).send(v)) return false; }
 #ifdef WITH_DOUBLE
-    else if (strcmp_P(type, F("f64")) == 0) { double v;      if (!am.recv(&v).send(v)) return false; }
+    else if (strcmp_P(type, F("f64")) == 0) { double v;      if (!am.recv(v).send(v)) return false; }
 #endif
     else return false;
 #endif
@@ -150,8 +148,8 @@ bool echo_multiple(AM &am) {
 }
 
 float float_param = 0;
-bool set_float_param(AM &am) { return am.recv().recv(&float_param).end_handler(); }
-bool get_float_param(AM &am) { return am.recv().send(float_param).end_handler(); }
+bool set_float_param(AM &am) { return am.skip().recv(float_param).end_handler(); }
+bool get_float_param(AM &am) { return am.skip().send(float_param).end_handler(); }
 
 bool quit(AM &am) {
   print(am.is_binary_mode() ? F("binary") : F("text")); print(F(" server done, "));

@@ -127,14 +127,14 @@ bool echo_multiple(AM &am) {
     else if (strcmp_P(type, F("str")) == 0) { const char* v; if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("bll")) == 0) { bool v;        if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u08")) == 0) { uint8_t v;     if (!am.recv(v).send(v)) return false; }
-    else if (strcmp_P(type, F("s08")) == 0) { int8_t v;      if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("i08")) == 0) { int8_t v;      if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u16")) == 0) { uint16_t v;    if (!am.recv(v).send(v)) return false; }
-    else if (strcmp_P(type, F("s16")) == 0) { int16_t v;     if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("i16")) == 0) { int16_t v;     if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u32")) == 0) { uint32_t v;    if (!am.recv(v).send(v)) return false; }
-    else if (strcmp_P(type, F("s32")) == 0) { int32_t v;     if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("i32")) == 0) { int32_t v;     if (!am.recv(v).send(v)) return false; }
 #ifdef WITH_INT64
     else if (strcmp_P(type, F("u64")) == 0) { uint64_t v;    if (!am.recv(v).send(v)) return false; }
-    else if (strcmp_P(type, F("s64")) == 0) { int64_t v;     if (!am.recv(v).send(v)) return false; }
+    else if (strcmp_P(type, F("i64")) == 0) { int64_t v;     if (!am.recv(v).send(v)) return false; }
 #endif
 #ifdef WITH_FLOAT
     else if (strcmp_P(type, F("f32")) == 0) { float v;       if (!am.recv(v).send(v)) return false; }
@@ -164,7 +164,7 @@ void add_cmds() {
   am.set_txt_echo(true);
 
 #define ADD_CMD(func, name, desc) \
-  if (am.add_cmd((func), F(name), F(desc)).has_err()) { print(AM::err_msg(am.clear_err())); println(); }
+  if (!am.add_cmd((func), F(name), F(desc))) { print(AM::err_msg(am.clear_err())); println(); }
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");

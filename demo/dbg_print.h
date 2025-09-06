@@ -27,29 +27,43 @@
 //always using printf() would be nicer, and should almost work; however it doesn't support float by default on AVR
 
 void println() { Serial.println(); }
-void print  (const char v) { Serial.print(v); }
-void print  (const bool v) { Serial.print(v ? 'T' : 'F'); }
-void print  (const __FlashStringHelper *v) { Serial.print(v); }
-void print  (const char *v) { Serial.print(v); }
-void print  (const int v) { Serial.print(v); }
-void print  (const unsigned int v) { Serial.print(v); }
-void print  (const long v) { Serial.print(v); }
-void print  (const unsigned long v) { Serial.print(v); }
-void print  (const double v) { Serial.print(v); }
+void print(const char v) { Serial.print(v); }
+void print(const bool v) { Serial.print(v ? 'T' : 'F'); }
+void print(const __FlashStringHelper *v) { Serial.print(v); }
+void print(const char *v) { Serial.print(v); }
+void print(const int v) { Serial.print(v); }
+void print(const unsigned int v) { Serial.print(v); }
+void print(const long v) { Serial.print(v); }
+void print(const unsigned long v) { Serial.print(v); }
+void print(const long long v) {
+  //Arduino Serial does not implement print(int64_t)
+  //ArduMon does have its own implementation which can do it but it's not worth depending on that here
+  if (v >= INT32_MIN && v <= INT32_MAX) Serial.print(static_cast<int32_t>(v));
+  else Serial.print(F("TOOBIG"));
+}
+void print(const unsigned long long v) {
+  //Arduino Serial does not implement print(uint64_t)
+  //ArduMon does have its own implementation which can do it but it's not worth depending on that here
+  if (v <= UINT32_MAX) Serial.print(static_cast<uint32_t>(v));
+  else Serial.print(F("TOOBIG"));
+}
+void print(const double v) { Serial.print(v); }
 
 #else
 
 #include <cstdio>
 
 void println() { printf("\n"); }
-void print  (const char v) { printf("%c", v); }
-void print  (const bool v) { printf("%c", v ? 'T' : 'F'); }
-void print  (const char *v) { printf("%s", v); }
-void print  (const int v) { printf("%d", v); }
-void print  (const unsigned int v) { printf("%u", v); }
-void print  (const long v) { printf("%ld", v); }
-void print  (const unsigned long v) { printf("%lu", v); }
-void print  (const double v) { printf("%f", v); }
+void print(const char v) { printf("%c", v); }
+void print(const bool v) { printf("%c", v ? 'T' : 'F'); }
+void print(const char *v) { printf("%s", v); }
+void print(const int v) { printf("%d", v); }
+void print(const unsigned int v) { printf("%u", v); }
+void print(const long v) { printf("%ld", v); }
+void print(const unsigned long v) { printf("%lu", v); }
+void print(const long long v) { printf("%lld", v); }
+void print(const unsigned long long v) { printf("%llu", v); }
+void print(const double v) { printf("%f", v); }
 
 #endif //ARDUINO
 

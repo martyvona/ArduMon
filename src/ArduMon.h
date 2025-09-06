@@ -602,6 +602,8 @@ public:
     return write_char('\x1B').write_char('[').write_char(fg_bg).write_char(color).write_char('m');
   }
 
+  //below are static utility methods 
+
   //Arduino platform includes strcmp_P() but not strcmp_PP() where both arguments are in program memory on AVR
   //adapted from https://github.com/bxparks/AceCommon/blob/develop/src/pstrings/pstrings.cpp
   static int strcmp_PP(const char* a, const char* b) {
@@ -621,6 +623,29 @@ public:
 
   //convert the low nybble of i to a hex char 0-9A-F
   static char to_hex(const uint8_t i) { return (i&0x0f) < 10 ? ('0' + (i&0x0f)) : ('A' + ((i&0x0f) - 10)); }
+
+  //no ato[u]ll() or strto[u]ll() on AVR, and Arduino Stream::parseInt() doesn't handle 64 bits
+  static bool parseInt64(const char *s, int64_t &v) {
+    return parse_dec(s, BP(&v), true, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
+  }
+
+  static bool parseUInt64(const char *s, uint64_t &v) {
+    return parse_dec(s, BP(&v), false, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
+  }
+
+  //standard Arduino Print::print() APIs don't handle 64 bits
+  //fmt is a bitmask of FMT_* flags with low bits specifying the minimum field width
+  static bool printInt64(Stream *stream, const int64_t &v, const uint8_t fmt = 0) {
+    return write_dec(BP(&v), true, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
+      while (*buf) stream->write(*buf++);
+    });
+  }
+
+  static bool printUInt64(Stream *stream, const uint64_t &v, const uint8_t fmt = 0) {
+    return write_dec(BP(&v), false, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
+      while (*buf) stream->write(*buf++);
+    });
+  }
 
 private:
 
@@ -797,7 +822,7 @@ private:
   }
 
   //can't use std::function on AVR
-  template<typename T> bool dispatch(const T&pred) {
+  template <typename T> bool dispatch(const T& pred) {
 
     bool retval;
     if (invoke(universal_handler, universal_runnable, flags, F_UNIV_RUNNABLE, retval)) return retval;
@@ -1026,13 +1051,20 @@ private:
   //parse a null terminated decimal int from s to num_bytes at dest
   template <typename big_int, typename big_uint> //supports int32_t/uint32_t, int64_t/uint64_t
   ArduMon& parse_dec(const char *s, uint8_t *dest, const bool sgnd, const uint8_t num_bytes) {
-
     if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
+    if (!parse_dec(s, dest, sgnd, num_bytes, static_cast<big_int>(0), static_cast<big_uint>(0)))
+      return fail(Error::BAD_ARG);
+    return *this;
+  }
 
+  template <typename big_int, typename big_uint> //supports uint32_t, uint64_t
+  static bool parse_dec(const char *s, uint8_t *dest, const bool sgnd, const uint8_t num_bytes,
+                        const big_int &tag, const big_uint &utag) {
+    
     const int8_t sign = *s == '-' ? -1 : +1;
 
     const bool neg = sign < 0;
-    if (neg && !sgnd) return fail(Error::BAD_ARG);
+    if (neg && !sgnd) return false;
     
     if (*s == '-' || *s == '+') ++s; //skip leading sign
 
@@ -1047,7 +1079,7 @@ private:
     }
 
     const char *dig = s;
-    for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return fail(Error::BAD_ARG);
+    for (uint8_t i = 0; *dig; i++, dig++) if (i > max_digits) return false;
 
     //read digits from least to most significant in 4 digit chunks
     constexpr uint8_t num_chunks = sizeof(big_uint) > 4 ? 5 : 3;
@@ -1057,7 +1089,7 @@ private:
       for (uint16_t place = 1; place <= 1000; place *= 10) {
         if (--dig < s) break; //no more digits to read
         const char d = *dig;
-        if (d < '0' || d > '9') return fail(Error::BAD_ARG);
+        if (d < '0' || d > '9') return false;
         chunk[c] += (d - '0') * place;
       }
     }
@@ -1098,7 +1130,7 @@ private:
           break;
         }
       }
-      if (chunk[c] > max_chunk) return fail(Error::BAD_ARG);
+      if (chunk[c] > max_chunk) return false;
       if (chunk[c] < max_chunk) break;
     }
     
@@ -1113,7 +1145,7 @@ private:
 
     copy_bytes(&ret, dest, num_bytes);
 
-    return *this;
+    return true;
   }
 
   //binary mode: copy a 4 byte float or 8 byte double from v to dest
@@ -1165,7 +1197,6 @@ private:
 
   //binary mode: append num_bytes int to send buffer
   //text mode: append num_bytes int starting at v as decimal or hexadecimal string in send buffer
-  template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
   ArduMon& write_int(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const uint8_t fmt) {
 
     if (has_err()) return *this;
@@ -1228,10 +1259,18 @@ private:
     return fail(Error::UNSUPPORTED);
   }
 
-  template <typename big_uint = uint32_t> //supports uint32_t, uint64_t
+  template <typename big_uint> //supports uint32_t, uint64_t
   ArduMon& write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const uint8_t fmt) {
+    if (binary_mode || !with_text ||
+        !write_dec(v, sgnd, num_bytes, fmt, static_cast<big_uint>(0), [&](const char *buf){ write_str(buf); }))
+      return fail(Error::UNSUPPORTED);
+    return *this;
+  }
 
-    if (binary_mode || !with_text) return fail(Error::UNSUPPORTED);
+  //can't use std::function on AVR; OutFunc takes a const char * and returns void
+  template <typename big_uint, typename OutFunc> //supports uint32_t, uint64_t
+  static bool write_dec(const uint8_t *v, const bool sgnd, const uint8_t num_bytes, const uint8_t fmt,
+                        const big_uint &tag, const OutFunc &out) {
 
     const bool neg = sgnd && (v[num_bytes - 1] & 0x80);
 
@@ -1261,7 +1300,7 @@ private:
         num = q;
         for (uint8_t j = 0; j < 4; j++) {
           uint16_t qq = r / 10;
-          if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
+          if (i == 0) return false; //shouldn't happen
           buf[--i] = '0' + (r - qq * 10);
           r = qq;
         }
@@ -1270,14 +1309,14 @@ private:
       //but the loop above reduces the amount of big_uint math
       while (num) {
         uint16_t q = num / 10;
-        if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
+        if (i == 0) return false; //shouldn't happen
         buf[--i] = '0' + (num - q * 10);
         num = q;
       }
     }
   
     if (neg) {
-      if (i == 0) return fail(Error::UNSUPPORTED); //shouldn't happen
+      if (i == 0) return false; //shouldn't happen
       buf[--i] = '-';
     }
 
@@ -1285,7 +1324,9 @@ private:
 
     pad(buf, buf_sz, fmt);
 
-    return write_str(buf);
+    out(buf);
+
+    return true;
   }
 
   //binary mode: append float or double v to send buffer
@@ -1666,7 +1707,7 @@ private:
     return i;
   }
 
-  void pad(char *buf, const uint8_t buf_sz, const uint8_t fmt) {
+  static void pad(char *buf, const uint8_t buf_sz, const uint8_t fmt) {
     uint8_t width = fmt&(~(FMT_HEX|FMT_PAD_ZERO|FMT_PAD_RIGHT)); //shouldn't get here if FMT_HEX
     if (!width) return;
     if (width >= buf_sz) width = buf_sz - 1;

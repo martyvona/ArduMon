@@ -24,6 +24,8 @@
 
 #ifdef ARDUINO
 
+#include <ArduMon.h> //printInt64()
+
 //always using printf() would be nicer, and should almost work; however it doesn't support float by default on AVR
 
 void println() { Serial.println(); }
@@ -35,18 +37,8 @@ void print(const int v) { Serial.print(v); }
 void print(const unsigned int v) { Serial.print(v); }
 void print(const long v) { Serial.print(v); }
 void print(const unsigned long v) { Serial.print(v); }
-void print(const long long v) {
-  //Arduino Serial does not implement print(int64_t)
-  //ArduMon does have its own implementation which can do it but it's not worth depending on that here
-  if (v >= INT32_MIN && v <= INT32_MAX) Serial.print(static_cast<int32_t>(v));
-  else Serial.print(F("TOOBIG"));
-}
-void print(const unsigned long long v) {
-  //Arduino Serial does not implement print(uint64_t)
-  //ArduMon does have its own implementation which can do it but it's not worth depending on that here
-  if (v <= UINT32_MAX) Serial.print(static_cast<uint32_t>(v));
-  else Serial.print(F("TOOBIG"));
-}
+void print(const long long v) { ArduMon<>::printInt64(&Serial, v); }
+void print(const unsigned long long v) { ArduMon<>::printInt64(&Serial, v); }
 void print(const double v) { Serial.print(v); }
 
 #else

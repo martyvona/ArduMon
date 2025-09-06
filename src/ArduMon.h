@@ -400,7 +400,7 @@ public:
   //receive a character (recv_char() instead of recv(char &v) to disambiguate from recv(int8_t &v))
   ArduMon& recv_char(char &v) {
     const char *ptr = CCS(next_tok(1));
-    if (!ptr || (*(ptr + 1) != 0)) return fail(Error::BAD_ARG);
+    if (!ptr || (!binary_mode && *(ptr + 1) != 0)) return fail(Error::BAD_ARG);
     v = *ptr;
     return *this;
   }

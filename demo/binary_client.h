@@ -24,7 +24,7 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <stdint.h>
+#include <stdint.h> //for INT32_MIN etc; AVR doesn't support C++ <limits>
 #include <float.h>
 
 #include "dbg_print.h"
@@ -82,20 +82,20 @@ protected:
 //and register the gcc command with a well-known command code, e.g. 0; this latter approach is demonstrated here
 class BCStage_gcc : public BCStage {
 public:
-  const char * const cmd_name;
   BCStage_gcc(const char *_cmd_name) : cmd_name(_cmd_name) {}
   uint8_t code() { return static_cast<uint8_t>(cmd_code); }
 protected:
-  bool send(AM& am) {
+  bool send(AM& am) override {
     print(F("sending gcc (0) for cmd ")); print(cmd_name); println();
     return am.send(static_cast<uint8_t>(0)).send(cmd_name).send_packet();
   }
-  bool recv(AM& am) {
+  bool recv(AM& am) override {
     if (!am.recv(cmd_code).end_handler()) return false;
     print(F("gcc received ")); print(cmd_code); println();
     return cmd_code >= 0;
   }
 private:
+  const char * const cmd_name;
   int16_t cmd_code = -1;
 };
 
@@ -104,11 +104,11 @@ BCStage_gcc bc_gcc_argc("argc"); //this is the first BCStage instance: it gets t
 //BCStage to demonstrate the argc (arg count) command
 class BCStage_argc : public BCStage {
 protected:
-  bool send(AM& am) {
+  bool send(AM& am) override {
     print(F("sending argc (")); print(static_cast<int>(bc_gcc_argc.code())); print(F(") with 6 bytes")); println();
     return am.send(bc_gcc_argc.code()).send(static_cast<uint8_t>(42)).send(3.14f).send_packet();
   }
-  bool recv(AM& am) {
+  bool recv(AM& am) override {
     uint8_t argc; const uint8_t expected = 6;
     if (!am.recv(argc).end_handler()) return false;
     if (argc != expected) print(F("ERROR: "));
@@ -124,10 +124,9 @@ BCStage_gcc bc_gcc_sfp("sfp"), bc_gcc_gfp("gfp");
 
 //BCStage to demonstrate the sfp (set float param) and gfp (get float param) commands
 class BCStage_sfp_gfp : public BCStage {
-public:
-  BCStage_sfp_gfp(const float _val) : val(_val) {}
+public: BCStage_sfp_gfp(const float _val) : val(_val) {}
 protected:
-  bool send(AM& am) {
+  bool send(AM& am) override {
     print(F("sending sfp (")); print(static_cast<int>(bc_gcc_sfp.code())); print(F(") value=")); print(val); println();
     if (!am.send(bc_gcc_sfp.code()).send(val).send_packet()) return false; //1 + 1 + 4 + 1 = 7 bytes
     
@@ -139,7 +138,7 @@ protected:
     //thus, we just rapidly sent (or at least queued) two packets totalling 7 + 3 = 10 bytes; should be OK because the
     //server's serial receive buffer should be at least 64 bytes; now we wait for a response which gives us flow control
   }
-  bool recv(AM& am) {
+  bool recv(AM& am) override {
     float param;
     if (!am.recv(param).end_handler()) return false;
     if (param != val) print(F("ERROR: "));
@@ -156,37 +155,43 @@ BCStage_sfp_gfp bc_sfp_gfp_pi(3.14), bc_sfp_gfp_minus_e(-2.71);
 //BCStage to get the command code for an echo command and then invoke it with a specified value
 template <typename T>
 class BCStage_echo : public BCStage {
-public:
-  BCStage_echo(const char *cmd, const T value) : name(cmd), val(value) {}
+public: BCStage_echo(const char *_cmd, const T _val) : cmd(_cmd), val(_val) {}
 protected:
-  bool send(AM& am) {
-    print(F("sending gcc (0) for cmd ")); print(name); println();
-    return am.send(static_cast<uint8_t>(0)).send(name).send_packet();
+  bool send(AM& am) override {
+    print(F("sending gcc (0) for cmd ")); print(cmd); println();
+    return am.send(static_cast<uint8_t>(0)).send(cmd).send_packet();
   }
-  bool recv(AM& am) {
+  bool recv(AM& am) override {
     if (num_receives == 1) {
       uint16_t code; if (!am.recv(code).end_handler()) return false;
       print(F("gcc received ")); print(code); println();
       if (code < 0) return false;
-      print(F("sending ")); print(name); print(F(" (")); print(code); print(F(") val=")); print_val(val); println();
+      print(F("sending ")); print(cmd); print(F(" (")); print(code); print(F(") val=")); print(val); println();
       return am.send(static_cast<uint8_t>(code)).send(val).send_packet();
     }
-    T v; if (!recv_val(am, v).end_handler()) return false;
-    if (v != val) print(F("ERROR: "));
-    print(name); print(F(" received ")); print_val(v); print(F(", expected ")); print_val(val); println();
-    return v == val;
+    T v; if (!am.recv(v).end_handler()) return false;
+    const bool ok = equals(v, val);
+    if (!ok) print(F("ERROR: "));
+    print(cmd); print(F(" received ")); print(v); print(F(", expected ")); print(val); println();
+    return ok;
   }
-  bool done(AM& am) { return num_receives > 1; }
+  bool done(AM& am) override { return num_receives > 1; }
+  virtual bool equals(const T &a, const T &b) { return a == b; }
 private:
-  const char *name;
+  const char *cmd;
   const T val;
-  AM& recv_val(AM& am, T& v) { return am.recv(v); }
-  void print_val(const T v) { print(v); }
+};
+
+class BCStage_echo_str : public BCStage_echo<const char*> {
+public: using BCStage_echo<const char*>::BCStage_echo;
+protected: bool equals(const char * const &a, const char * const &b) override { return strcmp(a,b) == 0; }
 };
 
 //these BCStage instances demonstrate the various echo commands
+//substituting send_char() and recv_char() for send() and recv() would complicate the BCStage_echo template
+//instead we'll use a separate stage below to deal with chars
+BCStage_echo_str es("es", "foo");
 BCStage_echo<bool> eb_f("eb", false), eb_t("eb", true);
-//TODO char, str, pstr
 BCStage_echo<uint8_t> eu8("eu8", 255);
 BCStage_echo<int8_t> es8_l("es8", -128), es8_h("es8", 127);
 BCStage_echo<uint16_t> eu16("eu16", 65535);
@@ -204,6 +209,36 @@ BCStage_echo<double> ed_l("ed", -DBL_MAX), ed_h("ed", DBL_MAX);
 #endif
 #endif
 
+BCStage_gcc bc_gcc_ec("ec");
+
+//BCStage to echo every character value between 0 and 255 inclusive
+class BCStage_all_the_chars : public BCStage {
+protected:
+  bool send(AM& am) override {
+    print(F("sending ec (")); print(bc_gcc_ec.code()); print(F(") val=")); print_char(val); println();
+    return am.send(static_cast<uint8_t>(bc_gcc_ec.code())).send_char(val).send_packet();
+  }
+  bool recv(AM& am) override {
+    char v; if (!am.recv_char(v).end_handler()) return false;
+    const bool ok = v == val;
+    if (!ok) print(F("ERROR: "));
+    print(F("ec received ")); print_char(v); print(F(", expected ")); print_char(val); println();
+    ++val;
+    return (num_receives > 255 || send(am)) && ok;
+  }
+  bool done(AM& am) override { return num_receives >= 256; }
+private:
+  void print_char(const char c) {
+    print(static_cast<uint8_t>(c)); print(F("=0x")); print(AM::to_hex(c >> 4)); print(AM::to_hex(c));
+    if (c >= 32 && c <= 126) { print(F("='")); print(c); print(F("'")); }
+  }
+  char val = 0;
+};
+
+//this BCStage echoes every character value from 0 to 255 inclusive
+//this also is a test that the communications channel is 8 bit clean
+BCStage_all_the_chars bc_atc;
+
 //these BCStage instances get the command codes for the ts and tg commands
 BCStage_gcc bc_gcc_ts("ts"), bc_gcc_tg("tg");
 
@@ -216,7 +251,7 @@ public:
 
 protected:
 
-  bool send(AM& am) {
+  bool send(AM& am) override {
     last_send = millis();
     if (!started) {
       print(F("sending ts (")); print(static_cast<int>(bc_gcc_ts.code())); print(F(")"));
@@ -230,7 +265,7 @@ protected:
     }
   }
 
-  bool recv(AM& am) {
+  bool recv(AM& am) override {
     if (resp_code >= 0 && resp_code <= 255 && !am.skip()) return false; //skip command code
     uint32_t total_ms, elapsed_ms;
     if (!am.recv(total_ms).recv(elapsed_ms).recv(remaining_ms).end_handler()) return false;
@@ -239,19 +274,19 @@ protected:
     return true;
   }
 
-  bool done(AM& am) {
+  bool done(AM& am) override {
     if (num_receives > 0 && remaining_ms == 0) return true;
     if (throttle_ms < 0 && (millis() - last_send) >= -throttle_ms && (!send(am) || am.has_err()))
       { print(AM::err_msg(am.clear_err())); println(); }
     return false;
   }
 
-  bool add_handler(AM& am) {
+  bool add_handler(AM& am) override {
     if (resp_code >= 0 && resp_code <= 255) return am.add_cmd(this, static_cast<uint8_t>(resp_code));
     else return am.set_universal_runnable(this);
   }
 
-  bool remove_handler(AM& am) {
+  bool remove_handler(AM& am) override {
     if (resp_code >= 0 && resp_code <= 255) return am.remove_cmd(static_cast<uint8_t>(resp_code));
     else return am.set_universal_runnable(0);
   }
@@ -276,13 +311,13 @@ BCStage_gcc bc_gcc_quit("quit");
 //BCStage to set demo_done=true and also invoke the quit command on the server
 class BCStage_quit : public BCStage {
 protected:
-  bool send(AM& am) {
+  bool send(AM& am) override {
     print(F("binary client done, ")); print(num_errors); print(F(" total errors")); println();
     demo_done = true; //we are the binary client: this will cause us to terminate
     print(F("sending quit (")); print(static_cast<int>(bc_gcc_quit.code())); print(F(")")); println();
     return am.send(bc_gcc_quit.code()).send_packet(); //also invoke the quit command to terminate the server
   }
-  bool recv(AM& am) { return true; }
+  bool recv(AM& am) override { return true; }
 };
 
 //last BCStage instance runs the quit command

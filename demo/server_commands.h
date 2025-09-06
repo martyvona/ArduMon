@@ -92,7 +92,7 @@ template <typename T> bool echo_flt(AM &am) {
   return am.send(v, scientific, precision, width).end_handler();
 }
 
-bool echo_char(AM &am) { char v; return am.skip().recv_char(v).send(v).end_handler(); }
+bool echo_char(AM &am) { char v; return am.skip().recv_char(v).send_char(v).end_handler(); }
 bool echo_str(AM &am) { const char* v; return am.skip().recv(v).send(v).end_handler(); }
 bool echo_u8(AM &am) { return echo_int<uint8_t>(am); }
 bool echo_s8(AM &am) { return echo_int<int8_t>(am); }

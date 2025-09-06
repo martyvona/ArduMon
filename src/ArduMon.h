@@ -397,7 +397,7 @@ public:
   //skip the next n tokens in text mode; skip the next n bytes in binary mode
   ArduMon& skip(const uint8_t n = 1) { next_tok(n); return *this; }
 
-  //receive a character (named recv_char() instead of recv(char &v) to disambiguate from recv(uint8_t &v))
+  //receive a character (recv_char() instead of recv(char &v) to disambiguate from recv(int8_t &v))
   ArduMon& recv_char(char &v) {
     const char *ptr = CCS(next_tok(1));
     if (!ptr || (*(ptr + 1) != 0)) return fail(Error::BAD_ARG);
@@ -447,7 +447,8 @@ public:
 
   //binary mode: send a single character (8 bit clean)
   //text mode: send space separator if necessary, then send character with quote and escape iff nessary
-  ArduMon& send(const char v) { return send_txt_sep().write_char(v, true); }
+  //(send_char() instead of send(char) to disambiguate from send(int8_t v))
+  ArduMon& send_char(const char v) { return send_txt_sep().write_char(v, true); }
 
   //binary and text mode: send a single character (8 bit clean)
   ArduMon& send_raw(const char v) { return write_char(v); }

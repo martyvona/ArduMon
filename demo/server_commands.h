@@ -188,7 +188,7 @@ void add_cmds() {
 #ifdef WITH_FLOAT
   ADD_CMD(echo_float, "ef", "arg [scientific [precision [width]]] | echo float");
 #ifdef WITH_DOUBLE
-  ADD_CMD(echo_float, "ed", "arg [scientific [precision [width]]] | echo double");
+  ADD_CMD(echo_double, "ed", "arg [scientific [precision [width]]] | echo double");
 #endif
 #endif
   ADD_CMD(echo_multiple, "em", "format_string args... | echo multiple args based on format");

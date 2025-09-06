@@ -24,6 +24,9 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+#include <stdint.h>
+#include <float.h>
+
 #include "dbg_print.h"
 
 /* binary client state machine ****************************************************************************************/
@@ -77,7 +80,6 @@ protected:
 //one approach is just to hardcode that into both the client and server, e.g. in a shared header file
 //another approach is for the server to implement a "gcc" command that will return the code for a given command name
 //and register the gcc command with a well-known command code, e.g. 0; this latter approach is demonstrated here
-
 class BCStage_gcc : public BCStage {
 public:
   const char * const cmd_name;
@@ -90,15 +92,16 @@ protected:
   }
   bool recv(AM& am) {
     if (!am.recv(cmd_code).end_handler()) return false;
-    print(F("gcc received ")); print(static_cast<int>(cmd_code)); println();
+    print(F("gcc received ")); print(cmd_code); println();
     return cmd_code >= 0;
   }
 private:
   int16_t cmd_code = -1;
 };
 
-BCStage_gcc bc_gcc_argc("argc");
+BCStage_gcc bc_gcc_argc("argc"); //this is the first BCStage instance: it gets the command code for the argc command
 
+//BCStage to demonstrate the argc (arg count) command
 class BCStage_argc : public BCStage {
 protected:
   bool send(AM& am) {
@@ -114,11 +117,12 @@ protected:
   }
 };
 
-BCStage_argc bc_argc;
+BCStage_argc bc_argc; //this BCStage instance demonstrates the argc (arg count) command
 
-BCStage_gcc bc_gcc_sfp("sfp");
-BCStage_gcc bc_gcc_gfp("gfp");
+//these BCStage instances get the command codes for the sfp and gfp commands
+BCStage_gcc bc_gcc_sfp("sfp"), bc_gcc_gfp("gfp");
 
+//BCStage to demonstrate the sfp (set float param) and gfp (get float param) commands
 class BCStage_sfp_gfp : public BCStage {
 public:
   BCStage_sfp_gfp(const float _val) : val(_val) {}
@@ -132,7 +136,7 @@ protected:
     
     //in setup() we called am.set_send_wait_ms(AM::ALWAYS_WAIT)
     //so the above sends all block until the data can be put into the client's serial send buffer
-    //thus, we just rapidly sent two packets totalling 7 + 3 = 10 bytes, which should be OK because the
+    //thus, we just rapidly sent (or at least queued) two packets totalling 7 + 3 = 10 bytes; should be OK because the
     //server's serial receive buffer should be at least 64 bytes; now we wait for a response which gives us flow control
   }
   bool recv(AM& am) {
@@ -146,12 +150,64 @@ private:
   const float val;
 };
 
-BCStage_sfp_gfp bc_sfp_gfp_pi(3.14);
-BCStage_sfp_gfp bc_sfp_gfp_minus_e(-2.71);
+//these BCStage instances demonstrate the sfp (set float param) and gfp (get float param) commands
+BCStage_sfp_gfp bc_sfp_gfp_pi(3.14), bc_sfp_gfp_minus_e(-2.71);
 
-BCStage_gcc bc_gcc_ts("ts");
-BCStage_gcc bc_gcc_tg("tg");
+//BCStage to get the command code for an echo command and then invoke it with a specified value
+template <typename T>
+class BCStage_echo : public BCStage {
+public:
+  BCStage_echo(const char *cmd, const T value) : name(cmd), val(value) {}
+protected:
+  bool send(AM& am) {
+    print(F("sending gcc (0) for cmd ")); print(name); println();
+    return am.send(static_cast<uint8_t>(0)).send(name).send_packet();
+  }
+  bool recv(AM& am) {
+    if (num_receives == 1) {
+      uint16_t code; if (!am.recv(code).end_handler()) return false;
+      print(F("gcc received ")); print(code); println();
+      if (code < 0) return false;
+      print(F("sending ")); print(name); print(F(" (")); print(code); print(F(") val=")); print_val(val); println();
+      return am.send(static_cast<uint8_t>(code)).send(val).send_packet();
+    }
+    T v; if (!recv_val(am, v).end_handler()) return false;
+    if (v != val) print(F("ERROR: "));
+    print(name); print(F(" received ")); print_val(v); print(F(", expected ")); print_val(val); println();
+    return v == val;
+  }
+  bool done(AM& am) { return num_receives > 1; }
+private:
+  const char *name;
+  const T val;
+  AM& recv_val(AM& am, T& v) { return am.recv(v); }
+  void print_val(const T v) { print(v); }
+};
 
+//these BCStage instances demonstrate the various echo commands
+BCStage_echo<bool> eb_f("eb", false), eb_t("eb", true);
+//TODO char, str, pstr
+BCStage_echo<uint8_t> eu8("eu8", 255);
+BCStage_echo<int8_t> es8_l("es8", -128), es8_h("es8", 127);
+BCStage_echo<uint16_t> eu16("eu16", 65535);
+BCStage_echo<int16_t> es16_l("es16", -32768), es16_h("es16", 32767);
+BCStage_echo<uint32_t> eu32("eu32", UINT32_MAX);
+BCStage_echo<int32_t> es32_l("es32", INT32_MIN), es32_h("es32", INT32_MAX);
+#ifdef WITH_INT64
+BCStage_echo<uint64_t> eu64("eu64", UINT64_MAX);
+BCStage_echo<int64_t> es64_l("es64", INT64_MIN), es64_h("es64", INT64_MAX);
+#endif
+#ifdef WITH_FLOAT
+BCStage_echo<float> ef_l("ef", -FLT_MAX), ef_h("ef", FLT_MAX);
+#ifdef WITH_DOUBLE
+BCStage_echo<double> ed_l("ed", -DBL_MAX), ed_h("ed", DBL_MAX);
+#endif
+#endif
+
+//these BCStage instances get the command codes for the ts and tg commands
+BCStage_gcc bc_gcc_ts("ts"), bc_gcc_tg("tg");
+
+//BCStage to start a timer and then receive its value until it ends
 class BCStage_timer : public BCStage {
 public:
   BCStage_timer(const uint8_t _h, const uint8_t _m, const uint8_t _s, const float _accel = 1,
@@ -208,24 +264,26 @@ private:
   uint64_t last_send;
 };
 
+//these BCStage instances demonstrate the ts (timer set) and tg (timer get) commands
 BCStage_timer bc_timer(0, 0, 10); //10s timer in synchronous response mode, no accel, no response code
 BCStage_timer bc_timer_acc(0, 0, 10, 2); //same as above except 2x accel
 BCStage_timer bc_timer_code(0, 0, 10, 2, 1000, 31); //same as above except 1s throttle and resp_code=31
 BCStage_timer bc_timer_async(0, 0, 10, 2, -1000, 31); //same as above except async
 
-//TODO more stages
-
+//this BCStage instance gets the command code for the quit command
 BCStage_gcc bc_gcc_quit("quit");
 
-class BCStage_done : public BCStage {
+//BCStage to set demo_done=true and also invoke the quit command on the server
+class BCStage_quit : public BCStage {
 protected:
   bool send(AM& am) {
     print(F("binary client done, ")); print(num_errors); print(F(" total errors")); println();
-    demo_done = true; //we are the binary client, this will cause us to terminate
+    demo_done = true; //we are the binary client: this will cause us to terminate
     print(F("sending quit (")); print(static_cast<int>(bc_gcc_quit.code())); print(F(")")); println();
-    return am.send(bc_gcc_quit.code()).send_packet(); //invoke quit command to terminate server
+    return am.send(bc_gcc_quit.code()).send_packet(); //also invoke the quit command to terminate the server
   }
   bool recv(AM& am) { return true; }
 };
 
-BCStage_done bc_done;
+//last BCStage instance runs the quit command
+BCStage_quit bc_quit;

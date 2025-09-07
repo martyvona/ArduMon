@@ -160,9 +160,6 @@ bool quit(AM &am) {
 
 void add_cmds() {
 
-  am.set_txt_prompt(F("ArduMon>"));
-  am.set_txt_echo(true);
-
 #define ADD_CMD(func, name, desc) \
   if (!am.add_cmd((func), F(name), F(desc))) { print(AM::err_msg(am.clear_err())); println(); }
 

@@ -116,6 +116,7 @@ AM am(&AM_STREAM, BINARY); //the ArduMon instance
 uint16_t num_errors = 0;
 bool count_errors(AM &am) { if (num_errors < 65535) ++num_errors; return am.get_default_error_handler()(am); }
 
+bool demo_quiet = false; //disable prompt and echo
 bool demo_done = false; //terminate the demo when this flag is set
 
 #ifdef BINARY_CLIENT
@@ -148,6 +149,7 @@ void setup() {
 #ifdef BINARY_CLIENT
   am.set_send_wait_ms(AM::ALWAYS_WAIT);
 #else
+  if (!demo_quiet) am.set_txt_echo(true).set_txt_prompt(F("ArduMon>"));
   add_cmds(); //text or binary server
 #endif
 #endif //BASELINE_MEM

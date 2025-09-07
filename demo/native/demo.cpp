@@ -39,6 +39,9 @@
 #include <thread>
 #include <stdexcept>
 #include <exception>
+#include <vector>
+#include <utility>
+#include <fstream>
 #include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
@@ -93,6 +96,7 @@ bool read_orig_attribs = false;
 int listen_fileno = -1;
 #endif
 int com_fileno = -1;
+bool script_mode = false;
 std::string com_path;
 
 void usage() {
@@ -101,7 +105,7 @@ void usage() {
   std::string role_args = "[unix#]";
 #else
   std::string role = "";
-  std::string role_args = "[-b|binary] ";
+  std::string role_args = "[-b|--binary]|[-s|--script] [-q|--quiet] ";
 #endif
   std::cerr << "USAGE: demo" << role << "_native [-v|--verbose] " << role_args <<  "<com_file_or_path>\n"; exit(1);
 }
@@ -122,6 +126,8 @@ void status() {
 
 bool exists(const std::string path) { struct stat s; return (stat(path.c_str(), &s) == 0); }
 
+bool is_empty(const std::string path) { struct stat s; return (stat(path.c_str(), &s) == 0) && s.st_size == 0; }
+
 void sleep_ms(const uint32_t ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
 void cleanup() {
@@ -138,7 +144,7 @@ void cleanup() {
   }
 #ifndef BINARY_CLIENT
   if (listen_fileno >= 0) { close(listen_fileno); listen_fileno = -1; }
-  if (exists(com_path)) unlink(com_path.c_str());
+  if (!script_mode && exists(com_path) && is_empty(com_path)) unlink(com_path.c_str());
 #endif
 }
 
@@ -152,6 +158,24 @@ void terminated() {
 }
 
 void terminate_handler(int s) { terminated(); }
+
+using Script = std::vector<std::pair<std::string, std::string>>;
+
+Script read_script(const std::string& file_path) {
+  Script records; std::string ln;
+  std::ifstream file(file_path);
+  if (!file.is_open()) { std::cerr << "ERROR: unable to open script file: " << file_path << "\n"; exit(1); }
+  while (std::getline(file, ln)) {
+    std::string::iterator it;
+    if (ln.empty() || std::all_of(ln.begin(), ln.end(), isspace)) continue; //ignore empty line
+    if ((it = std::find_if_not(ln.begin(), ln.end(), isspace)) != ln.end() && *it == '#') continue; //ignore comment
+    while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //remove \n and \r
+    if (ln[0] != '>') records.emplace_back("send", ln);
+    else records.emplace_back("recv", ln.substr(1));
+  }
+  file.close();
+  return records;
+}
 
 int main(int argc, const char **argv) {
 
@@ -168,10 +192,14 @@ int main(int argc, const char **argv) {
 
   const char *com_file_or_path = 0;
   bool verbose = false, binary = false;
+  Script script;
+
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
 #ifndef BINARY_CLIENT
       if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true; else
+      if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) demo_quiet = true; else
+      if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--script") == 0) script_mode = demo_quiet = true; else
 #endif
       if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
       else usage();
@@ -193,16 +221,18 @@ int main(int argc, const char **argv) {
   setup(); //call Arduino setup() method defined in demo.h
 
 #ifndef BINARY_CLIENT
-  const bool is_socket = true;
-
   std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
             << " command handlers\n";
-
+  bool is_socket = true;
   if (binary) {
+    if (script_mode) { std::cerr << "ERROR: --binary and --script are mutually exclusive\n"; exit(1); }
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
     demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
-  } else std::cout << "proceeding in text mode\n";
+  } else {
+    std::cout << "proceeding in text mode\n";
+    if (script_mode) is_socket = false;
+  }
 #else
   const bool is_socket = strncmp("unix#", com_file_or_path, 5) == 0;
   if (is_socket) com_file_or_path += 5;
@@ -210,9 +240,7 @@ int main(int argc, const char **argv) {
 
   if (com_file_or_path[0] != '/') {
     if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
-    com_path += buf;
-    com_path += "/";
-    com_path += com_file_or_path;
+    com_path += buf; com_path += "/"; com_path += com_file_or_path;
   } else com_path = com_file_or_path;
 
   status();
@@ -226,39 +254,48 @@ int main(int argc, const char **argv) {
 
 #ifndef BINARY_CLIENT 
 
-  //text or binary server: create com_path as unix socket and listen() on it
+  if (script_mode) {
 
-  if (exists(com_path)) {
-    std::cout << com_path << " exists, removing\n";
-    unlink(com_path.c_str());
+    std::cout << "reading script from " << com_path << "...\n";
+    script = read_script(com_path);
+    std::cout << "read " << script.size() << " script steps\n";
+
+  } else { //text or binary server: create com_path as unix socket and listen() on it
+      
+    if (exists(com_path) && is_empty(com_path)) {
+      std::cout << com_path << " exists and is empty, removing\n";
+      unlink(com_path.c_str());
+    }
+
+    listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (listen_fileno < 0) { perror(("error opeining " + com_path).c_str()); exit(1); }
+    
+    if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
+      perror(("error binding " + com_path).c_str()); exit(1);
+    }
+
+    if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
+
+    std::cout << "demo server: waiting for connection on " << com_path << "...\n";
+    std::cout << "example connection:\n";
+    if (binary) std::cout << "demo_client_native unix#" << com_path << "\n";
+    else std::cout << "minicom -D unix#" << com_path << "\n";
+    std::cout << std::flush;
+
+    com_fileno = accept(listen_fileno, NULL, NULL);
+    if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
+    std::cout << "got connection on " << com_path << "\n";
   }
-
-  listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (listen_fileno < 0) { perror(("error opeining " + com_path).c_str()); exit(1); }
-
-  if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
-    perror(("error binding " + com_path).c_str()); exit(1);
-  }
-
-  if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
-
-  std::cout << "demo server: waiting for connection on " << com_path << "...\n";
-  std::cout << "example connection:\n";
-  if (binary) std::cout << "demo_client_native unix#" << com_path << "\n";
-  else std::cout << "minicom -D unix#" << com_path << "\n";
-  std::cout << std::flush;
-
-  com_fileno = accept(listen_fileno, NULL, NULL);
-  if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
-  std::cout << "got connection on " << com_path << "\n";
 
 #else //binary client
 
-  if (is_socket) { //com_path is a UNIX socket (command line option started with "unix#")
+  if (is_socket) { //com_path is a UNIX socket (com_file_or_path started with "unix#")
+
     com_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
     if (connect(com_fileno, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
       perror(("error connecting to " + com_path).c_str()); exit(1);
     }
+
   } else { //com_path is a serial port file, not a UNIX socket
 
     com_fileno = open(com_path.c_str(), O_RDWR | O_NOCTTY);
@@ -297,31 +334,78 @@ int main(int argc, const char **argv) {
     }
   };
 
-  while (!demo_done) {
-    
-    int nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
-    if (nr < 0) {
-      if (errno == ECONNRESET || errno == ENOTCONN) break;
-      else if (errno == EAGAIN) nr = 0; //nonblocking read failed due to nothing available to read
-      else { perror(("error reading from " + com_path).c_str()); exit(1); }
+  auto script_step = script.begin();
+  std::string script_response;
+
+  while (!demo_done && (!script_mode || script_step != script.end())) {
+
+    int nr = 0, nw = 0;
+    const size_t step_num = script_step - script.begin();
+
+    if (!script_mode) {
+      nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
+      if (nr < 0) {
+        if (errno == ECONNRESET || errno == ENOTCONN) break;
+        else if (errno == EAGAIN) nr = 0; //nonblocking read failed due to nothing available to read
+        else { perror(("error reading from " + com_path).c_str()); exit(1); }
+      }
+    } else if (script_step->first == "send") {
+      nr = script_step->second.length() + 1;
+      if (nr > sizeof(buf)) {
+        std::cerr << "ERROR: script send at step " << step_num << " is " << nr << " > " << sizeof(buf) << " chars\n";
+        exit(1);
+      }
+      for (size_t i = 0; i < nr; i++) buf[i] = (i == nr - 1) ? '\n' : script_step->second[i];
+      std::cout << "script step " << step_num << " SEND " << script_step->second << "\n";
+      ++script_step;
     }
 
     for (size_t i = 0; i < nr; i++) { demo_stream.in.put(buf[i]); if (verbose) log("rcvd", buf[i]); }
     
     loop(); //call Arduino loop() method defined in demo.h
     
-    size_t ns = std::min(demo_stream.out.size(), sizeof(buf)), nw = 0;
+    size_t ns = std::min(demo_stream.out.size(), sizeof(buf));
+    if (ns > sizeof(buf)) {
+      std::cerr << "ERROR: " << role << " sent " << ns << " > " << sizeof(buf) << " chars\n";
+      exit(1);
+    }
+
     if (ns > 0) {
       for (size_t i = 0; i < ns; i++) { buf[i] = demo_stream.out.get(); if (verbose) log("sent", buf[i]); }
-      while (ns - nw > 0) {
-        int ret = write(com_fileno, buf + nw, ns - nw);
-        if (ret < 0) {
-          if (errno == ECONNRESET || errno == ENOTCONN) break;
-          else if (errno == EAGAIN) ret = 0; //nonblocking write failed
-          else { perror(("error writing to " + com_path).c_str()); exit(1); }
+      if (!script_mode) {
+        while (ns - nw > 0) {
+          int ret = write(com_fileno, buf + nw, ns - nw);
+          if (ret < 0) {
+            if (errno == ECONNRESET || errno == ENOTCONN) break;
+            else if (errno == EAGAIN) ret = 0; //nonblocking write failed
+            else { perror(("error writing to " + com_path).c_str()); exit(1); }
+          }
+          nw += ret;
+          if (ns - nw > 0) sleep_ms(1);
         }
-        nw += ret;
-        if (ns - nw > 0) sleep_ms(1);
+      } else if (script_step->first == "recv") {
+        nw = ns;
+        script_response.append(buf, ns);
+        auto start = script_response.begin(), end = script_response.end();
+        while (start < end && (end = std::find(start, end, '\n')) != script_response.end()) {
+          std::string response_line(start, ++end); //pop first response_line from beginning of script_response
+          script_response.erase(start, end);
+          start = script_response.begin(); end = script_response.end();
+          while (response_line.back() == '\n' || response_line.back() == '\r') response_line.pop_back();
+          if (script_step->first != "recv") {
+            std::cerr << "ERROR: received extra line at script step " << step_num << ":\n"
+                      << "received: " << response_line << "\n";
+            exit(1);
+          }
+          std::cout << "script step " << step_num << " RECV " << script_step->second << "\n";
+          if (response_line != script_step->second) {
+            std::cerr << "ERROR: script recv at step " << step_num << " mismatch:\n"
+                      << "expected: " << script_step->second << "\n"
+                      << "received: " << response_line << "\n";
+            exit(1);
+          }
+          ++script_step;
+        }
       }
     }
 

@@ -881,7 +881,8 @@ private:
 
       const bool comment_start = !in_str && !in_chr && c == '#';
 
-      if (save_cmd) recv_buf[recv_buf_sz/2 + i + 1] = (comment_start || c == '\n' || c == '\r')  ? 0 : c;
+      //copy original input to upper half of recv_buf as saved command
+      if (save_cmd) recv_buf[recv_buf_sz/2 + 1 + i] = (comment_start || c == '\n' || c == '\r')  ? 0 : c;
 
       if ((in_str || in_chr) && c == '\\') {
         if (i == len - 1) return fail(Error::PARSE_ERR);
@@ -912,6 +913,8 @@ private:
     arg_count = 0;
     while (++recv_ptr <= end) { if ((recv_ptr == end || !(*recv_ptr)) && *(recv_ptr - 1)) ++arg_count; }
     recv_ptr = tmp;
+
+    //DEBUG for (uint16_t k = 0; k < recv_buf_sz; k++) std::cerr << "recv_buf[" << k << "]=" << +recv_buf[k] << "\n";
 
     const char *cmd_name = CCS(next_tok(0));
     recv_ptr = tmp; //first token returned to command handler should be the command token itself
@@ -1413,7 +1416,7 @@ private:
   //if len >= 0 then send len raw bytes instead of checking for null terminator in either mode
   ArduMon& write_str(const uint8_t *v, const bool progmem = false, const bool cook = false, const int16_t len = -1) {
 
-    if (has_err() || len == 0) return *this;
+    if (!v || has_err() || len == 0) return *this;
 
     bool quote = false;
     uint16_t n = 0, n_esc = 0;

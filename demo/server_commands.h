@@ -64,7 +64,7 @@ bool echo_bool(AM &am) {
 }
 
 template <typename T> bool echo_int(AM &am) {
-  T v; if (!am.skip().recv(v)) return false;
+  T v = 0; if (!am.skip().recv(v)) return false;
   bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
   if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
@@ -81,7 +81,7 @@ template <typename T> bool echo_int(AM &am) {
 }
 
 template <typename T> bool echo_flt(AM &am) {
-  T v; if (!am.skip().recv(v)) return false;
+  T v = 0; if (!am.skip().recv(v)) return false;
   bool scientific = false; int8_t precision = -1, width = -1;
   if (am.is_text_mode()) {
     const uint8_t argc = am.argc();
@@ -92,8 +92,8 @@ template <typename T> bool echo_flt(AM &am) {
   return am.send(v, scientific, precision, width).end_handler();
 }
 
-bool echo_char(AM &am) { char v; return am.skip().recv_char(v).send_char(v).end_handler(); }
-bool echo_str(AM &am) { const char* v; return am.skip().recv(v).send(v).end_handler(); }
+bool echo_char(AM &am) { char v = 0; return am.skip().recv_char(v).send_char(v).end_handler(); }
+bool echo_str(AM &am) { const char* v = 0; return am.skip().recv(v).send(v).end_handler(); }
 bool echo_u8(AM &am) { return echo_int<uint8_t>(am); }
 bool echo_s8(AM &am) { return echo_int<int8_t>(am); }
 bool echo_u16(AM &am) { return echo_int<uint16_t>(am); }

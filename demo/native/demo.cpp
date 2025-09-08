@@ -3,13 +3,22 @@
  *
  * See https://github.com/martyvona/ArduMon/blob/main/README.md
  *
- * This "native" demo driver compiles and runs on an OS X or Linux host.
+ * This "native" demo driver compiles and runs on an OS X or Linux host, including under WSL on Windows.  WSL2 does not
+ * support UNIX sockets, which are used in some modes, so in those cases use WSL1 on Windows.
  *
- * When compiled as a server (BINARY_CLIENT not defined) this code can run in binary or text mode, controlled by a
- * command line option, and a UNIX socket file is created to which clients can connect.  In text mode the client would
- * be a standard serial terminal program like minicom.  In binary mode the client would be another invocation of this
- * demo but compiled as a client (BINARY_CLIENT defined).  It is also possible to run this demo as a binary client and
- * connect to a serial port file corresponding to a physical Arduino running the binary demo server.
+ * The build-native.sh script builds this file in two different ways:
+ * * with DEMO_CLIENT not defined, resulting in executable server file "ardumon_server"
+ * * with DEMO_CLIENT defined, resulting in executable file "ardumon_client"
+ *
+ * ardumon_server always creates a UNIX socket file; it runs in text mode by default.  Connect to it either with a
+ * serial terminal like minicom that can handle UNIX sockets, or with ardumon_client to run a prepared set of text
+ * commands.  Adding the --binary command line option to ardumon_server switches it to binary mode.  Run ardumon_client
+ * --binary_demo to connect to it and run a hardcoded set of demo commands.
+ *
+ * ardumon_client can also connect to a serial port file corresponding to an actual Arduino.  If the Arduino implements
+ * any ArduMon text mode CLI it can be exercised with an ArduMon script, see ardumon_script.txt for the syntax and an
+ * example.  If the Arduino is running the ArduMon binary demo server then it can be exercised with the --binary_demo
+ * option.
  *
  * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  *
@@ -75,7 +84,7 @@ public :
 //emulate the 64 byte Arduino serial input buffer
 #define SERIAL_IN_BUF_SZ 64
 
-#ifndef BINARY_CLIENT
+#ifndef DEMO_CLIENT
 //since this demo is single threaded
 //and doesn't implement the equivalent of the Arduino serial send interrupt
 //use a large output buffer so that command handlers which send a lot, like "help", do not hang
@@ -89,38 +98,39 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 #define AM_STREAM demo_stream
 #include "../demo.h"
 
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
 struct termios orig_attribs;
 bool read_orig_attribs = false;
 #else
 int listen_fileno = -1;
 #endif
 int com_fileno = -1;
-bool script_mode = false;
 std::string com_path;
 
 void usage() {
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
   std::string role = "_client";
-  std::string role_args = "[unix#]";
+  std::string args = "[--binary_demo]|[--auto_throttle [ms]] [unix#]";
+  std::string sfx = " [< ardumon_script.txt]";
 #else
-  std::string role = "";
-  std::string role_args = "[-b|--binary]|[-s|--script] [-q|--quiet] ";
+  std::string role = "_server";
+  std::string args = "[-b|--binary] ";
+  std::string sfx = "";
 #endif
-  std::cerr << "USAGE: demo" << role << "_native [-v|--verbose] " << role_args <<  "<com_file_or_path>\n"; exit(1);
+  std::cerr << "USAGE: ardumon" << role << " [-v|--verbose] " << args <<  "com_file_or_path" << sfx << "\n"; exit(1);
 }
 
 void status() {
   std::cout << demo_stream.in.status() << "\n";
   std::cout << demo_stream.out.status() << "\n";
-  std::cout << "command receive buffer: " << am.get_recv_buf_used() << "/" << am.get_recv_buf_size() << " used\n";
-  std::cout << "command response buffer: " << am.get_send_buf_used() << "/" << am.get_send_buf_size() << " used\n";
+  std::cout << "ArduMon receive buffer: " << am.get_recv_buf_used() << "/" << am.get_recv_buf_size() << " used\n";
+  std::cout << "ArduMon response buffer: " << am.get_send_buf_used() << "/" << am.get_send_buf_size() << " used\n";
   std::string state = "idle";
   if (am.is_receiving()) state = "receiving";
   else if (am.is_handling()) state = "handling";
-  std::cout << "command interpreter " << state << (am.is_binary_mode() ? " (binary)" : " (text)") << "\n";
+  std::cout << "ArduMon " << state << (am.is_binary_mode() ? " (binary)" : " (text)") << "\n";
   AM::millis_t rtm = am.get_recv_timeout_ms();
-  if (rtm > 0) std::cout << "command receive timeout " << rtm << "ms\n";
+  if (rtm > 0) std::cout << "receive timeout " << rtm << "ms\n";
   std::cout << "com file: " << com_path << "\n" << std::flush;
 }
 
@@ -132,7 +142,7 @@ void sleep_ms(const uint32_t ms) { std::this_thread::sleep_for(std::chrono::mill
 
 void cleanup() {
   if (com_fileno >= 0) {
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
     if (read_orig_attribs) {
       std::cout << "restoring attributes on " << com_path << "\n";
       if (tcsetattr(com_fileno, TCSANOW, &orig_attribs) != 0) perror(("error setting attribs on " + com_path).c_str());
@@ -142,9 +152,9 @@ void cleanup() {
     close(com_fileno);
     com_fileno = -1;
   }
-#ifndef BINARY_CLIENT
+#ifndef DEMO_CLIENT
   if (listen_fileno >= 0) { close(listen_fileno); listen_fileno = -1; }
-  if (!script_mode && exists(com_path) && is_empty(com_path)) unlink(com_path.c_str());
+  if (exists(com_path) && is_empty(com_path)) unlink(com_path.c_str());
 #endif
 }
 
@@ -161,20 +171,21 @@ void terminate_handler(int s) { terminated(); }
 
 using Script = std::vector<std::pair<std::string, std::string>>;
 
-Script read_script(const std::string& file_path) {
-  Script records; std::string ln;
-  std::ifstream file(file_path);
-  if (!file.is_open()) { std::cerr << "ERROR: unable to open script file: " << file_path << "\n"; exit(1); }
-  while (std::getline(file, ln)) {
+Script read_script(const uint32_t def_throttle_ms, const bool auto_throttle) {
+  Script ret; std::string ln, def_throttle = std::to_string(def_throttle_ms);
+  while (std::getline(std::cin, ln)) {
     std::string::iterator it;
     if (ln.empty() || std::all_of(ln.begin(), ln.end(), isspace)) continue; //ignore empty line
     if ((it = std::find_if_not(ln.begin(), ln.end(), isspace)) != ln.end() && *it == '#') continue; //ignore comment
     while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //remove \n and \r
-    if (ln[0] != '>') records.emplace_back("send", ln);
-    else records.emplace_back("recv", ln.substr(1));
+    if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1));
+    else if (ln[0] == '?') ret.emplace_back("throttle", ln.length() > 1 ? ln.substr(1) : def_throttle);
+    else {
+      if (auto_throttle && !ret.empty() && ret.back().first == "send") ret.emplace_back("throttle", def_throttle);
+      ret.emplace_back("send", ln);
+    }
   }
-  file.close();
-  return records;
+  return ret;
 }
 
 int main(int argc, const char **argv) {
@@ -191,59 +202,64 @@ int main(int argc, const char **argv) {
   char buf[2048];
 
   const char *com_file_or_path = 0;
-  bool verbose = false, binary = false;
+  bool verbose = false, binary = false, auto_throttle = false;
+  uint32_t def_throttle_ms = 100;
   Script script;
 
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
-#ifndef BINARY_CLIENT
-      if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true; else
-      if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) demo_quiet = true; else
-      if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--script") == 0) script_mode = demo_quiet = true; else
-#endif
       if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
+#ifdef DEMO_CLIENT
+      else if (strcmp(argv[i], "--binary_demo") == 0) binary = true;
+      else if (strcmp(argv[i], "--auto_throttle") == 0) {
+        auto_throttle = true;
+        if (i < argc-1 && strlen(argv[i]) > 0 && argv[i][0] != '-') {
+          try { def_throttle_ms = static_cast<uint32_t>(std::stoul(argv[++i])); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_throttle " << e.what() << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad --auto_throttle " << e.what() << "\n"; exit(1); }
+        }
+      }
+#else
+      else if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true;
+#endif
       else usage();
     } else com_file_or_path = argv[i];
   }
 
   if (!com_file_or_path) usage();
 
-#ifdef BINARY_CLIENT
-  binary = true;
-  std::string role = "binary client";
+#ifdef DEMO_CLIENT
+  const bool client = true;
+  std::string role = binary ? "binary demo client" : "text client";
 #else
-  std::string role = (binary ? "binary" : "text");
-  role += " server";
+  const bool client = false;
+  std::string role = binary ? "binary server" : "text server";
 #endif
 
   std::cout << "ArduMon " << role << "\n";
 
-  setup(); //call Arduino setup() method defined in demo.h
+  if (!client || binary) setup(); //call Arduino setup() method defined in demo.h
 
-#ifndef BINARY_CLIENT
+#ifndef DEMO_CLIENT
   std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
             << " command handlers\n";
-  bool is_socket = true;
+  const bool is_socket = true;
   if (binary) {
-    if (script_mode) { std::cerr << "ERROR: --binary and --script are mutually exclusive\n"; exit(1); }
     std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
     demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
-  } else {
-    std::cout << "proceeding in text mode\n";
-    if (script_mode) is_socket = false;
-  }
+  } else std::cout << "proceeding in text mode\n";
 #else
   const bool is_socket = strncmp("unix#", com_file_or_path, 5) == 0;
   if (is_socket) com_file_or_path += 5;
-#endif //BINARY_CLIENT
+#endif //DEMO_CLIENT
 
   if (com_file_or_path[0] != '/') {
     if (!getcwd(buf, sizeof(buf))) { perror("error getting current working directory"); exit(1); }
     com_path += buf; com_path += "/"; com_path += com_file_or_path;
   } else com_path = com_file_or_path;
 
-  status();
+  if (verbose) status();
 
   struct sockaddr_un addr;
   if (is_socket) {
@@ -252,42 +268,34 @@ int main(int argc, const char **argv) {
     strncpy(addr.sun_path, com_path.c_str(), sizeof(addr.sun_path) - 1);
   }
 
-#ifndef BINARY_CLIENT 
+#ifndef DEMO_CLIENT 
 
-  if (script_mode) {
-
-    std::cout << "reading script from " << com_path << "...\n";
-    script = read_script(com_path);
-    std::cout << "read " << script.size() << " script steps\n";
-
-  } else { //text or binary server: create com_path as unix socket and listen() on it
-      
-    if (exists(com_path) && is_empty(com_path)) {
-      std::cout << com_path << " exists and is empty, removing\n";
-      unlink(com_path.c_str());
-    }
-
-    listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (listen_fileno < 0) { perror(("error opeining " + com_path).c_str()); exit(1); }
-    
-    if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
-      perror(("error binding " + com_path).c_str()); exit(1);
-    }
-
-    if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
-
-    std::cout << "demo server: waiting for connection on " << com_path << "...\n";
-    std::cout << "example connection:\n";
-    if (binary) std::cout << "demo_client_native unix#" << com_path << "\n";
-    else std::cout << "minicom -D unix#" << com_path << "\n";
-    std::cout << std::flush;
-
-    com_fileno = accept(listen_fileno, NULL, NULL);
-    if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
-    std::cout << "got connection on " << com_path << "\n";
+  //text or binary server: create com_path as unix socket and listen() on it
+  if (exists(com_path) && is_empty(com_path)) {
+    std::cout << com_path << " exists and is empty, removing\n";
+    unlink(com_path.c_str());
   }
+  listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (listen_fileno < 0) { perror(("error opeining " + com_path).c_str()); exit(1); }
+  if (bind(listen_fileno, (const struct sockaddr *) &addr, sizeof(struct sockaddr_un)) < 0) {
+    perror(("error binding " + com_path).c_str()); exit(1);
+  }
+  if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
 
-#else //binary client
+  std::cout << role << ": waiting for connection on " << com_path << "...\n";
+  std::cout << "example connection(s):\n";
+  if (binary) std::cout << "ardumon_client --binary_demo unix#" << com_path << "\n";
+  else {
+    std::cout << "minicom -D unix#" << com_path << "\n";
+    std::cout << "ardumon_client unix#" << com_path << " < ardumon_script.txt\n";
+  }
+  std::cout << std::flush;
+
+  com_fileno = accept(listen_fileno, NULL, NULL);
+  if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
+  std::cout << "got connection on " << com_path << "\n";
+
+#else //DEMO_CLIENT
 
   if (is_socket) { //com_path is a UNIX socket (com_file_or_path started with "unix#")
 
@@ -321,6 +329,12 @@ int main(int argc, const char **argv) {
     sleep_ms(5000);
   }
 
+  if (!binary) {
+    std::cout << "reading ArduMon script from stdin... ";
+    script = read_script(def_throttle_ms, auto_throttle);
+    std::cout << script.size() << " steps\n";
+  }
+
 #endif
 
   fcntl(com_fileno, F_SETFL, O_NONBLOCK);
@@ -336,63 +350,55 @@ int main(int argc, const char **argv) {
 
   auto script_step = script.begin();
   std::string script_response;
+  uint64_t throttle_start = 0; uint32_t throttle_ms = 0;
 
-  while (!demo_done && (!script_mode || script_step != script.end())) {
+  while (!demo_done || demo_stream.out.size()) {
 
-    int nr = 0, nw = 0;
-    const size_t step_num = script_step - script.begin();
-
-    if (!script_mode) {
-      nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
-      if (nr < 0) {
-        if (errno == ECONNRESET || errno == ENOTCONN) break;
-        else if (errno == EAGAIN) nr = 0; //nonblocking read failed due to nothing available to read
-        else { perror(("error reading from " + com_path).c_str()); exit(1); }
-      }
-    } else if (script_step->first == "send") {
-      nr = script_step->second.length() + 1;
-      if (nr > sizeof(buf)) {
-        std::cerr << "ERROR: script send at step " << step_num << " is " << nr << " > " << sizeof(buf) << " chars\n";
-        exit(1);
-      }
-      for (size_t i = 0; i < nr; i++) buf[i] = (i == nr - 1) ? '\n' : script_step->second[i];
-      std::cout << "script step " << step_num << " SEND " << script_step->second << "\n";
-      ++script_step;
+    //move any incoming bytes waiting in com_fileno to demo_stream.in
+    int nr = read(com_fileno, buf, std::min(sizeof(buf), demo_stream.in.free()));
+    if (nr < 0) {
+      if (errno == ECONNRESET || errno == ENOTCONN) break;
+      else if (errno == EAGAIN) nr = 0; //nonblocking read failed due to nothing available to read
+      else { perror(("error reading from " + com_path).c_str()); exit(1); }
     }
-
     for (size_t i = 0; i < nr; i++) { demo_stream.in.put(buf[i]); if (verbose) log("rcvd", buf[i]); }
-    
-    loop(); //call Arduino loop() method defined in demo.h
-    
-    size_t ns = std::min(demo_stream.out.size(), sizeof(buf));
-    if (ns > sizeof(buf)) {
-      std::cerr << "ERROR: " << role << " sent " << ns << " > " << sizeof(buf) << " chars\n";
-      exit(1);
-    }
 
+    //move any outgoing bytes waiting in demo_stream.out to com_fileno
+    size_t ns = std::min(demo_stream.out.size(), sizeof(buf)), nw = 0;
     if (ns > 0) {
       for (size_t i = 0; i < ns; i++) { buf[i] = demo_stream.out.get(); if (verbose) log("sent", buf[i]); }
-      if (!script_mode) {
-        while (ns - nw > 0) {
-          int ret = write(com_fileno, buf + nw, ns - nw);
-          if (ret < 0) {
-            if (errno == ECONNRESET || errno == ENOTCONN) break;
-            else if (errno == EAGAIN) ret = 0; //nonblocking write failed
-            else { perror(("error writing to " + com_path).c_str()); exit(1); }
-          }
-          nw += ret;
-          if (ns - nw > 0) sleep_ms(1);
+      while (ns - nw > 0) {
+        int ret = write(com_fileno, buf + nw, ns - nw);
+        if (ret < 0) {
+          if (errno == ECONNRESET || errno == ENOTCONN) break;
+          else if (errno == EAGAIN) ret = 0; //nonblocking write failed
+          else { perror(("error writing to " + com_path).c_str()); exit(1); }
         }
+        nw += ret;
+        if (ns - nw > 0) sleep_ms(1);
+      }
+    }
+
+    if (verbose && (nr > 0 || nw > 0)) status();
+
+    if (!client || binary) loop(); //call Arduino loop() method defined in demo.h
+    else { //demo client text script mode
+      if (script_step == script.end()) { demo_done = true; break; }
+      const size_t step_num = script_step - script.begin();
+      if (script_step->first == "send") {
+        std::cout << "script step " << step_num << " SEND " << script_step->second << "\n";
+        nr = script_step->second.length() + 1;
+        for (size_t i = 0; i < nr; i++) demo_stream.out.put((i == nr - 1) ? '\n' : script_step->second[i]);
+        ++script_step;
       } else if (script_step->first == "recv") {
-        nw = ns;
-        script_response.append(buf, ns);
+        while (demo_stream.in.size()) script_response += demo_stream.in.get();
         auto start = script_response.begin(), end = script_response.end();
         while (start < end && (end = std::find(start, end, '\n')) != script_response.end()) {
           std::string response_line(start, ++end); //pop first response_line from beginning of script_response
           script_response.erase(start, end);
           start = script_response.begin(); end = script_response.end();
           while (response_line.back() == '\n' || response_line.back() == '\r') response_line.pop_back();
-          if (script_step->first != "recv") {
+          if (script_step == script.end() || script_step->first != "recv") {
             std::cerr << "ERROR: received extra line at script step " << step_num << ":\n"
                       << "received: " << response_line << "\n";
             exit(1);
@@ -406,11 +412,18 @@ int main(int argc, const char **argv) {
           }
           ++script_step;
         }
+      } else if (script_step->first == "throttle") {
+        const uint64_t now = millis();
+        if (!throttle_start) {
+          std::cout << "script step " << step_num << " THROTTLE " << script_step->second << "\n";
+          throttle_start = now;
+          try { throttle_ms = static_cast<uint32_t>(std::stoul(script_step->second)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad throttle_ms " << e.what() << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad throttle_ms " << e.what() << "\n"; exit(1); }
+        } else if (now - throttle_start > throttle_ms) { demo_stream.in.clear(); throttle_start = 0; ++script_step; }
       }
     }
-
-    if (verbose && (nr > 0 || nw > 0)) status();
-
+    
     sleep_ms(1);
   }
 

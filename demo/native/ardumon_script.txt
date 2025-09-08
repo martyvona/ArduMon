@@ -1,0 +1,28 @@
+# ardumon_client text script
+# blank lines as well as comment lines where the first non-whitespace character is # are ignored
+# lines may end with any combination of newline and carriage reuturn (other trailing whitespace is not ignored)
+# lines not starting with > are sent as newline terminated commands
+# lines starting with > are expected response lines (expected to be terminated with carriage return / newline pairs)
+# lines starting ?[ms] wait for the specified amount of time (default 100ms) and then discard all received input
+# the throttle time can be overriden with ardumon_client --auto_throttle
+# the --auto_throttle option also causes a ? line to be inferred after each command line with no subsequent > line
+
+quiet t
+?
+
+sfp 3.875
+gfp
+>3.875
+
+es foo
+>foo
+
+x
+>bad command
+
+em i32u08 392
+>392
+>receive underflow
+
+quit
+?

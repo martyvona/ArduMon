@@ -7,9 +7,9 @@
  * the native host when included in native/demo.cpp.  By default it implements a text mode ArduMon server supporting a
  * small catalog of demonstration commands, including commands to echo values of various types, as well as a countdown
  * timer (see AM_Timer.h).  It can also compile as a binary (not text) server with BINARY=true (see
- * binary_server/binary_server.ino), and as a binary client with BINARY_CLIENT defined (see
+ * binary_server/binary_server.ino), and as a binary client with DEMO_CLIENT defined (see
  * binary_client/binary_client.ino).  The native server build can run in binary or text mode depending on a runtime
- * command line option, and it can run in binary client mode with the compile time flag -DBINARY_CLIENT.
+ * command line option, and it can run in binary client mode with the compile time flag -DDEMO_CLIENT.
  *
  * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  *
@@ -34,11 +34,11 @@
 //builds text server demo by default
 //#define BASELINE_MEM //to check memory usage of boilerplate
 //#define BINARY true //to build binary server
-//#define BINARY_CLIENT //to build binary client
+//#define DEMO_CLIENT //to build binary client
 
 /* configure ArduMon **************************************************************************************************/
 
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
 #define BINARY true
 #endif
 
@@ -116,10 +116,9 @@ AM am(&AM_STREAM, BINARY); //the ArduMon instance
 uint16_t num_errors = 0;
 bool count_errors(AM &am) { if (num_errors < 65535) ++num_errors; return am.get_default_error_handler()(am); }
 
-bool demo_quiet = false; //disable prompt and echo
 bool demo_done = false; //terminate the demo when this flag is set
 
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
 #include "binary_client.h" //most of the demo binary client here
 #else
 #include "server_commands.h" //most of the demo server (both text and binary mode) here
@@ -146,10 +145,10 @@ void setup() {
 
 #ifndef BASELINE_MEM
   am.set_error_handler(count_errors);
-#ifdef BINARY_CLIENT
+#ifdef DEMO_CLIENT
   am.set_send_wait_ms(AM::ALWAYS_WAIT);
 #else
-  if (!demo_quiet) am.set_txt_echo(true).set_txt_prompt(F("ArduMon>"));
+  am.set_txt_echo(true).set_txt_prompt(F("ArduMon>"));
   add_cmds(); //text or binary server
 #endif
 #endif //BASELINE_MEM
@@ -164,11 +163,11 @@ void loop() {
   }
 #endif
   am.update();
-#ifndef BINARY_CLIENT
+#ifndef DEMO_CLIENT
   timer.tick(am); //text or binary server: tick the timer
 #else //binary client: crank the state machine
   BCStage *next; if (current_bc_stage && (next = current_bc_stage->update(am))) current_bc_stage = next;
-#endif //BINARY_CLIENT
+#endif //DEMO_CLIENT
 #endif //BASELINE_MEM
 }
 

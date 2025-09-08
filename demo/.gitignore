@@ -1,2 +1,3 @@
-*_native
 build/
+ardumon_server
+ardumon_client

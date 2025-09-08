@@ -37,23 +37,37 @@ ArduMon also
 
 In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `end_handler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `is_binary_mode()` and `is_text_mode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example of this in the `AM_timer::get()` command.
 
-In text mode the entire received command string must fit in the ArduMon receive buffer, the size of which is set at compile time.  There is no limit on the amount of data that can be returned by a command in text mode, though sending may block the handler if enough data is sent fast enough relative to the Arduino serial send buffer size, typically 64 bytes, and the serial baudrate.   The ArduMon send buffer is not used in text mode, and can be disabled at compile time if binary mode will not be used.
+ArduMon implements its own send and receive buffers, with sizes configurable at compile time, in addition to the serial send and recieve buffers built into the Arduino platform.
+
+In text mode the entire received command string must fit in the ArduMon receive buffer.  There is no limit on the amount of data that can be returned by a command in text mode, though sending may block the handler if enough data is sent fast enough relative to the Arduino serial send buffer size, typically 64 bytes, and the serial baudrate.   The ArduMon send buffer is not used in text mode, and can be disabled at compile time if binary mode will not be used.
 
 In binary mode both commands and responses are sent in variable length packets of up to 255 bytes.  The ArduMon receive and send buffers must be sized at compile time to fit the largest used packets; if an application is receive-only then the ArduMon receive buffer can be disabled.  The first byte of each packet gives the packet length in bytes (2-255), the second byte is typically a command code, and the last byte is a checksum.  The max payload size per packet is 253 bytes, as there are always two overhead bytes: length (first byte) and checksum (last byte).  The command code, if present, is considered part of the payload.  If a packet consisting of only two bytes (length and checksum) is received, or if the second byte is not a the code of a registered command handler, then the packet can only be handled by the universal or fallback handlers, see `set_universal_handler()` and `set_fallback_handler()`, both of which are optional.  Zero or more packets can be returned in series from a single command handler, see `send_packet()`.
 
-Most of the ArduMon APIs return a reference to the ArduMon object itself, which enables method chaining, also known as a [fluent interface](https://en.wikipedia.org/wiki/Fluent_interface).  The ArduMon object maintains an error state; once it's set, it's sticky until `clear_err()` is called.  You can also register an error handler that will be automatically called during `end_handler()`; the demo shows an example of using this to report errors.  The `send(...)` and `recv(...)` APIs will be no-ops if ArduMon is already in an error state.  The `recv(...)` APIs can generate `RECV_UNDERFLOW` in both text and binary mode and `BAD_ARG` in text mode. The `send(...)` APIs can generate `SEND_OVERFLOW` in binary mode, but in text mode they block as necessary and cannot error.  Command reception (or any received packet in binary mode) can generate `RECV_OVERFLOW`, `RECV_TIMEOUT`, or `BAD_CMD`; as well as `BAD_PACKET` in binary mode or `PARSE_ERR` in text mode.  The `UNSUPPORTED` error can only be generated due to a programming inconsistency, e.g. calling `set_binary_mode(true)` when ArduMon was configured `with_binary = false`, or `recv(int64_t)` when configured `with_int64 = false`.
+The ArduMon `update()` API should be "pumped" from the Arduino `loop()` method.  Command handlers are run directly from `update()`, so if they run long, they will block `loop()`.  A handler may return before handling is complete, as long as `end_handler()` is eventually called.  ArduMon also has an optional receive timeout (`set_recv_timeout_ms()`) which will reset the command interpreter if too much time has passed between receiving the first and last bytes of a command.  This is disabled by default; it probably makes more sense for automation than for interactive use.
+
+In text mode a single handler can return an arbitrary amount of data.  In binary mode a single handler can send an arbitrary number of response packets (see `send_packet()`).  In either case this would typically require breaking the handler up so that `loop()` is not blocked.
+
+It is also acceptable to send data when a command handler is not actually running.  This can be used to use one instance of ArduMon to invoke commands on another instance.  Or, a command could trigger sending periodic status strings in text mode (or status packets in binary mode) indefinitely until another command is received to end the stream.  ArduMon can even be used for send-only applications, for example to broadcast a never ending stream of packets in binary mode.
+
+Handlers can also implement their own sub-protocols, reading and optionally writing directly to the serial port (typically via the Arduino serial send and receive buffers).  Command receive is disabled while a handler is running, so during that time a handler can consume serial data that's not intended for the command processor.  For example, an interactive text mode handler that is updating a live display on the terminal could exit when a keypress is received from the user.
+
+Most of the ArduMon APIs return a reference to the ArduMon object itself, which enables method chaining, also known as a [fluent interface](https://en.wikipedia.org/wiki/Fluent_interface).  An ArduMon instance can also be converted to `bool` to check if there is currently any error on it. 
+
+## Error Handling
+
+The ArduMon object maintains an error state; once it's set, it's sticky until `clear_err()` is called.  You can also register an error handler that will be automatically called during `end_handler()`; the demo shows an example of using this to report errors.  The `send(...)` and `recv(...)` APIs will be no-ops if ArduMon is already in an error state.  The `recv(...)` APIs can generate `RECV_UNDERFLOW` in both text and binary mode and `BAD_ARG` in text mode. The `send(...)` APIs can generate `SEND_OVERFLOW` in binary mode, but in text mode they block as necessary and cannot error.  Command reception (or any received packet in binary mode) can generate `RECV_OVERFLOW`, `RECV_TIMEOUT`, or `BAD_CMD`; as well as `BAD_PACKET` in binary mode or `PARSE_ERR` in text mode.  The `UNSUPPORTED` error can only be generated due to a programming inconsistency, e.g. calling `set_binary_mode(true)` when ArduMon was configured `with_binary = false`, or `recv(int64_t)` when configured `with_int64 = false`.
 
 In binary mode ArduMon uses an 8 bit checksum for basic (but fallible) communication error detection.  There is no built in correction of communication errors, e.g. an ACK/NACK protocol, retries, etc.  The demo shows an example of invoking a command to set a parameter and then verifying that the parameter was set as intended by invoking another command to read back the parameter value.  This is not very efficient and is still susceptible to several types of failure.  ArduMon is intended to be simple and to support both text and binary communication for rapid development.  For high reliability binary communication consider switching to [CAN bus](https://en.wikipedia.org/wiki/CAN_bus), which has built-in error detection and correction.
 
-Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  Automation can do similar if necessary in binary mode.  Only one command is handled at a time.  If a new command starts coming in while one is still being handled then the new command will start to fill the Arduino serial input buffer, which is typically 64 bytes.  Once the Arduino serial input buffer fills, further received bytes will be silently dropped; the Arduino serial receive interrupt unfortunately [does not signal overflow](https://arduino.stackexchange.com/a/14035).  Be aware that operating systems also traditionally offer both [hardware](https://en.wikipedia.org/wiki/RTS/CTS) (RTS/CTS) and [software](https://en.wikipedia.org/wiki/Software_flow_control) (XON/XOFF) flow control for serial ports.  In most modern situations these should be disabled by default, but it is best to ensure this is the case when using ArduMon to communicate with a PC.  Otherwise communication could be inadvertently interrupted, particularly in binary mode with software flow control, where transmission from the PC would be halted whenever the XOFF character (ASCII 19) is received, meaning the communication channel is not [8-bit clean](https://en.wikipedia.org/wiki/8-bit_clean).  The [native demo](./demo/native/demo.cpp) shows one way to ensure serial port flow control is disabled using the `cfmakeraw()` and `tcsetattr()` UNIX APIs; another method is to use the `stty` command.
+## Flow Control
 
-ArduMon also has an optional receive timeout (`set_recv_timeout_ms()`) which will reset the command interpreter if too much time has passed between receiving the first and last bytes of a command.  This is disabled by default; it probably makes more sense for automation than for interactive use.
+Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  The included `ardumon_client` native program can send commands from a script file (or stream from another application).  While it is also possible to `cat` such commands directly to the serial port, the `ardumon_client` approach enables flow control by waiting for responses for each command.
 
-The ArduMon `update()` API should be "pumped" from the Arduino `loop()` method.  Command handlers are run directly from `update()`, so if they run long, they will block `loop()`.  A handler may return before handling is complete, as long as `end_handler()` is eventually called.
+Binary mode clients can similarly implment flow control either by waiting a sufficient time between sending each command or by waiting for a response.
 
-In text mode a single handler can return an arbitrary amount of data.  In binary mode a single handler can send an arbitrary number of response packets (see `send_packet()`); this would require breaking the handler up so that `loop()` is not blocked.  It is also acceptable to send data when a command handler is not actually running, as long as all command parameters have been read before calling `end_handler()`.  For example, a command could trigger sending periodic status strings in text mode, or status packets in binary mode, indefinitely until another command is received to end the stream.  ArduMon can even be used for send-only applications, e.g. which just autonomously send a never ending stream of packets in binary mode.
+Only one command is handled at a time.  If a new command starts coming in while one is still being handled then the new command will start to fill the Arduino serial input buffer, which is typically 64 bytes.  Once the Arduino serial input buffer fills, further received bytes will be silently dropped; the Arduino serial receive interrupt unfortunately [does not signal overflow](https://arduino.stackexchange.com/a/14035).
 
-Handlers can also implement their own sub-protocols, reading and optionally writing directly to the serial port (typically via the Arduino serial send and receive buffers).  Command receive is disabled while a handler is running, so during that time a handler can consume serial data that's not intended for the command processor.  For example, an interactive text mode handler that is updating a live display on the terminal could exit when a keypress is received from the user.
+Operating systems also traditionally offer both [hardware](https://en.wikipedia.org/wiki/RTS/CTS) (RTS/CTS) and [software](https://en.wikipedia.org/wiki/Software_flow_control) (XON/XOFF) flow control for serial ports.  In most modern situations these should be disabled by default, but it is best to ensure this is the case when using ArduMon to communicate with a PC.  Otherwise communication could be inadvertently interrupted, particularly in binary mode with software flow control, where transmission from the PC would be halted whenever the XOFF character (ASCII 19) is received, meaning the communication channel is not [8-bit clean](https://en.wikipedia.org/wiki/8-bit_clean).  The [native demo](./demo/native/demo.cpp) shows one way to ensure serial port flow control is disabled using the `cfmakeraw()` and `tcsetattr()` UNIX APIs; another method is to use the `stty` command.
 
 ## Text Mode
 
@@ -137,7 +151,7 @@ Several demonstrations of how ArduMon can be used are included in the `demo/` di
 * `demo/demo.ino` shows how to use ArduMon to add a text CLI to an Arduino.  Follow the instructions below for how to [connect](#connecting-to-ardumon-in-text-mode) to it from a serial terminal program on a PC.
 * `demo/binary_server/binary_server.ino` shows how to use ArduMon to add a binary packet API to an Arduino, re-using mostly the same code as the text mode demo
 * `demo/binary_client/binary_client.ino` shows how to use ArduMon to also implement the "client" side of the binary commuinication; it's intended to be used with `binary_server.ino` running on one Arduino and `binary_client.ino` running on another Arduino.  Connect Serial1 TX on pin 11 of the first Arduino to the Serial1 RX on pin 10 of the second Arduino and vice-versa.  You can also connect each Arduino by USB to a computer to monitor the log output of each side of the demo.
-* `demo/native/demo.cpp` re-uses the same demo code as the Arduino demos but compiles directly to native executables `demo_native` and `demo_client_native` that run on a PC; this allows experimenting with ArduMon without an Arduino.  `demo_client_native` can also be used to run a mixed binary demo where the client runs on a PC and the server runs on an Arduino.  See below for more information on [how to build and run the native demos](#running-the-native-demos).
+* `demo/native/demo.cpp` re-uses the same demo code as the Arduino demos but compiles directly to native executables `ardumon_server` and `ardumon_client` that run on a PC; this allows experimenting with ArduMon without an Arduino.  `ardumon_client` can also be used to run a mixed binary demo where the client runs on a PC and the server runs on an Arduino.  See below for more information on [how to build and run the native demos](#running-the-native-demos).
 
 ## Running the Native Demos
 
@@ -159,56 +173,71 @@ cd demo/native
 ./build-native.sh
 ```
 
-### Running the Native Text Demo
+### Running the Native Text Demo Without an Arduino
 
 ```
 cd demo/native
-./demo_native foo
+./ardumon_server foo
 ```
 
 A UNIX socket called "foo" (use any name you want) will be created as as a file in the curent directory, and will be deleted when the demo program terminates.
 
 This should work on Linux and OS X.  It should also work on Windows under WSL, but [UNIX sockets are currently only supported in WSL 1](https://stackoverflow.com/a/73067921), not WSL 2.  You can [switch](https://learn.microsoft.com/en-us/windows/wsl/install#upgrade-version-from-wsl-1-to-wsl-2) an existing WSL installation to WSL 1 with the command `wsl --set-version DISTRO_NAME 1` where `DISTRO_NAME` is one of the installed WSL Linux distributions shown in `wsl --list`.  You can also switch back to WSL 2 later with `wsl --set-version DISTRO_NAME 2`.
 
-Once `demo_native` is running, open another terminal and use [minicom](#connecting-with-minicom) to attach to it with a command like
+Once `ardumon_server` is running, open another terminal and use [minicom](#connecting-with-minicom) to attach to it with a command like
 
 ```
 minicom -D unix#PATH_TO_UNIX_SOCKET_FILE
 ```
 
-where `PATH_TO_UNIX_SOCKET_FILE` is the full path to the Unix socket file that was created by `demo_native`.  To end the demo, enter the command `quit` in minicom, which will cause `demo_native` to terminate and the UNIX socket file to be deleted.  Then exit minicom by hitting ctrl-A (option-Z on OS X), then Q, then enter.
+where `PATH_TO_UNIX_SOCKET_FILE` is the full path to the Unix socket file that was created by `ardumon_server`.  To end the demo, enter the command `quit` in minicom, which will cause `ardumon_server` to terminate and the UNIX socket file to be deleted.  Then exit minicom by hitting ctrl-A (option-Z on OS X), then Q, then enter.
 
-### Running the Native Binary Demo
+You can also run a fixed set of commands with `ardumon_client`:
 
 ```
 cd demo/native
-./demo_native -b foo
+./ardumon_client foo < ardumon_script.txt
+```
+
+The text file format is described at the top of `ardumon_script.txt`.  That file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected, or to wait for responses without verifying them as a means of [flow control](#flow-control).
+
+### Running the Native Binary Demo Without an Arduino
+
+```
+cd demo/native
+./ardumon_server -b foo
 ```
 
 This runs the demo server in binary mode.  A UNIX socket file is created in the same way as for the text demo, but this time it implements packet-based binary communication, so a text-based serial terminal program like minicom cannot be used to exercise it.  Instead, connect to it with the binary client, running in a separate terminal window:
 
 ```
 cd demo/native
-./demo_client_native unix#foo
+./ardumon_client --binary_demo unix#foo
 ```
 
-This will run the same binary demo code as in the Arduino demos, but natively.  It will run a fixed sequence of commands and generate some log output both in the client and server terminal windows.  At the end both the client and server will automatically exit.
+This will run the same code as in the Arduino `demo/binary_client`, but natively.  It will run a fixed sequence of commands and generate some log output both in the client and server terminal windows.  At the end both the client and server will automatically exit.
 
-### Running the Native Binary Client and the Arduino Binary Server
+### Connecting the Native Client to an Arduino
 
-It's also possible to use `demo_client_native` to run the binary demo but connected to an Arduino that's running the binary server demo.
-
-First, compile and upload the binary server demo but with `#define BIN_USE_SERIAL0` enabled (i.e. *un*-commented) in `binary_server.ino`.  This will configure the Arduino binary server to use the default Serial port (the one connected to the Arduino USB interface) for binary communication, and will disable logging.  Or, leave `BIN_USE_SERIAL0` disabled and use an external USB-to-serial converter to connect the Serial1 interface on pins 10 (RX) and 11 (TX) to the PC.
-
-Then run
+It's also connect `ardumon_client` to an Arduino running any ArduMon text CLI, or the `demo/binary_client`.  For the text mode case run
 
 ```
 cd demo/native
 ./build_native.sh
-./demo_client_native PORT
+./arduino_client PORT < ardumon_script.txt
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial conveter, if you are using one).
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial converter, if you are using one).
+
+The included `ardumon_script.txt` is specific for the included text mode demo, but you can create other script files to work with your own ArduMon CLI implementations.
+
+The binary mode native client is specific to the included binary mode demo; it runs through the same binary commands as the included `demo/binary_client`.  First, compile and upload `demo/binary_server` but with `#define BIN_USE_SERIAL0` enabled (i.e. *un*-commented) in `binary_server.ino`.  This will configure the Arduino binary server to use the default Serial port (the one connected to the Arduino USB interface) for binary communication, and will disable logging.  Or, leave `BIN_USE_SERIAL0` disabled and use an external USB-to-serial converter to connect the Serial1 interface on pins 10 (RX) and 11 (TX) to the PC.  Then run
+
+```
+cd demo/native
+./build_native.sh
+./arduino_client --binary_demo PORT
+```
 
 ## Building the Demo for Arduino
 

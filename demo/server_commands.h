@@ -40,6 +40,8 @@ AM_Timer<AM> timer;
 
 bool help(AM &am) { return am.send_cmds().end_handler(); }
 
+bool quiet(AM &am) { return am.set_txt_echo(false).set_txt_prompt(0).end_handler(); }
+
 bool argc(AM &am) { return am.send(am.argc()).end_handler(); }
 
 bool gcc(AM &am) { const char *name; return am.skip().recv(name).send(am.get_cmd_code(name)).end_handler(); }
@@ -165,6 +167,7 @@ void add_cmds() {
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
+  ADD_CMD(quiet, "quiet", "disable text echo and prompt");
   ADD_CMD(argc, "argc", "show arg count");
   ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel [sync_throttle_ms|-1 [bin_response_code]]] | start timer");
   ADD_CMD(&(timer.stop_cmd), "to", "stop timer");

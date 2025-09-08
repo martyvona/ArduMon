@@ -157,7 +157,8 @@ Several demonstrations of how ArduMon can be used are included in the `demo/` di
 
 It's possible to run the ArduMon demos entirely on your host computer, with no Arduino involved.  This can be useful for development and testing.
 
-Install `g++` on Linux including WSL.  Compilation works on both WSL 1 and WSL 2, but WSL 1 is preferred because UNIX sockets are used for running the demos, and they are only supported on WSL 1.
+Install `g++` on Linux including WSL.  If you intend to [run the demos without an Arduino](#running-the-native-demos-without-an-arduino) then WSL 1 is required because UNIX sockets are not supported on WSL 2.
+
 ```
 sudo apt install g++ # or use the package manger for your distribution
 ```
@@ -173,7 +174,9 @@ cd demo/native
 ./build-native.sh
 ```
 
-### Running the Native Text Demo Without an Arduino
+### Running the Native Demos Without an Arduino
+
+#### Text Mode
 
 ```
 cd demo/native
@@ -199,9 +202,7 @@ cd demo/native
 ./ardumon_client foo < ardumon_script.txt
 ```
 
-The text file format is described at the top of `ardumon_script.txt`.  That file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected, or to wait for responses without verifying them as a means of [flow control](#flow-control).
-
-### Running the Native Binary Demo Without an Arduino
+#### Binary Mode
 
 ```
 cd demo/native
@@ -219,7 +220,9 @@ This will run the same code as in the Arduino `demo/binary_client`, but natively
 
 ### Connecting the Native Client to an Arduino
 
-It's also connect `ardumon_client` to an Arduino running any ArduMon text CLI, or the `demo/binary_client`.  For the text mode case run
+It's also possible to attach the native `ardumon_client` to an Arduino running any ArduMon text CLI, or the `demo/binary_client`.
+
+#### Text Mode
 
 ```
 cd demo/native
@@ -227,9 +230,11 @@ cd demo/native
 ./arduino_client PORT < ardumon_script.txt
 ```
 
-where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial converter, if you are using one).
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
 
-The included `ardumon_script.txt` is specific for the included text mode demo, but you can create other script files to work with your own ArduMon CLI implementations.
+The text file format is described at the top of `ardumon_script.txt`.  That file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected, or to wait for responses without verifying them as a means of [flow control](#flow-control).
+
+#### Binary Mode
 
 The binary mode native client is specific to the included binary mode demo; it runs through the same binary commands as the included `demo/binary_client`.  First, compile and upload `demo/binary_server` but with `#define BIN_USE_SERIAL0` enabled (i.e. *un*-commented) in `binary_server.ino`.  This will configure the Arduino binary server to use the default Serial port (the one connected to the Arduino USB interface) for binary communication, and will disable logging.  Or, leave `BIN_USE_SERIAL0` disabled and use an external USB-to-serial converter to connect the Serial1 interface on pins 10 (RX) and 11 (TX) to the PC.  Then run
 
@@ -238,6 +243,8 @@ cd demo/native
 ./build_native.sh
 ./arduino_client --binary_demo PORT
 ```
+
+where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list` (or the number of the serial port corresponding to your USB-to-serial converter, if you are using one).
 
 ## Building the Demo for Arduino
 

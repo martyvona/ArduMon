@@ -10,6 +10,8 @@
 #
 # lines starting with > are expected response lines (expected to be terminated with carriage return / newline pairs)
 #
+# lines starting with * are similar to > but don't check the response value, just that there was one line of response
+#
 # lines starting ?[ms] wait for the specified amount of time (default 100ms) and then discard all received input
 # the default wait time can be overriden with ardumon_client --auto_wait
 # the --auto_wait option also causes a ? line to be inferred after each command line with no subsequent > or ? line
@@ -21,8 +23,9 @@
 # ardumon_client will abort with nonzero exit code when the received response does not match a specified > line
 # or when --recv_timeout is enabled and a specified > line is not received in the allowed time
 
+# disable echo and prompt
 quiet t
-?
+*
 
 sfp 3.875
 gfp
@@ -39,6 +42,10 @@ gfp
 
 # leading space escapes the ? (though "?x" is not actually a valid command, so expect "bad command")
  ?x
+>bad command
+
+# leading space escapes the * (though "*x" is not actually a valid command, so expect "bad command")
+ *x
 >bad command
 
 em i32u08 392

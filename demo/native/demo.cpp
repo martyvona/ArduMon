@@ -180,7 +180,8 @@ Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
   while (std::getline(std::cin, ln)) {
     if (ln.empty() || ln[0] == '#') continue; //ignore empty line or comment
     while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //strip \n and \r at line end
-    if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1));
+    if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1)); //note we have already stripped all \r and \n here
+    else if (ln[0] == '*') ret.emplace_back("recv", "\n"); //recv "\n" means receive a line but ignore its content
     else if (ln[0] == '?') ret.emplace_back("wait", ln.length() > 1 ? ln.substr(1) : def_wait);
     else {
       if (auto_wait && !ret.empty() && ret.back().first == "send") ret.emplace_back("wait", def_wait);
@@ -221,17 +222,19 @@ int main(int argc, const char **argv) {
       else if (strncmp(argv[i], "--auto_wait", 11) == 0) {
         auto_wait = true;
         if (strlen(argv[i]) > 11 && argv[i][11] == '=') {
-          try { def_wait_ms = static_cast<uint32_t>(std::stoul(argv[i] + 12)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
+          const char *ms = argv[i] + 12;
+          try { def_wait_ms = static_cast<uint32_t>(std::stoul(ms)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_wait " << ms << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad --auto_wait " << ms << "\n"; exit(1); }
         }
       }
       else if (strncmp(argv[i], "--recv_timeout", 14) == 0) {
         recv_timeout = DEF_RECV_TIMEOUT_MS;
         if (strlen(argv[i]) > 14 && argv[i][14] == '=') {
-          try { recv_timeout = static_cast<uint32_t>(std::stoul(argv[i] + 15)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad --recv_timeout " << e.what() << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad --recv_timeout " << e.what() << "\n"; exit(1); }
+          const char *ms = argv[i] + 15;
+          try { recv_timeout = static_cast<uint32_t>(std::stoul(ms)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad --recv_timeout " << ms << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad --recv_timeout " << ms << "\n"; exit(1); }
         }
       }
 #else
@@ -405,7 +408,7 @@ int main(int argc, const char **argv) {
       if (script_step == script.end()) { demo_done = true; break; }
       const size_t step_num = script_step - script.begin();
       if (script_step->first == "send") {
-        std::cout << "script step " << step_num << " SEND " << script_step->second << "\n";
+        std::cout << "script step " << step_num << " SEND " << script_step->second << "\n" << std::flush;
         nr = script_step->second.length() + 1;
         for (size_t i = 0; i < nr; i++) demo_stream.out.put((i == nr - 1) ? '\n' : script_step->second[i]);
         ++script_step;
@@ -418,7 +421,10 @@ int main(int argc, const char **argv) {
             exit(1);
           }
         } else {
-          std::cout << "script step " << step_num << " RECV " << script_step->second << "\n";
+          std::cout << "script step " << step_num;
+          if (script_step->second != "\n")  std::cout << " RECV " << script_step->second << "\n";
+          else std::cout << " RECV_ANY\n";
+          std::cout << std::flush;
           if (recv_timeout > 0) recv_deadline = now + recv_timeout;
           else recv_deadline = std::numeric_limits<uint64_t>::max();
         }
@@ -434,7 +440,7 @@ int main(int argc, const char **argv) {
                       << "received: " << response_line << "\n";
             exit(1);
           }
-          if (response_line != script_step->second) {
+          if (script_step->second != "\n" && response_line != script_step->second) {
             std::cerr << "ERROR: script step " << step_num << " RECV mismatch:\n"
                       << "expected: " << script_step->second << "\n"
                       << "received: " << response_line << "\n";
@@ -445,11 +451,11 @@ int main(int argc, const char **argv) {
         }
       } else if (script_step->first == "wait") {
         if (!wait_start) {
-          std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n";
+          std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n" << std::flush;
           wait_start = now;
           try { wait_ms = static_cast<uint32_t>(std::stoul(script_step->second)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad wait_ms " << e.what() << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad wait_ms " << e.what() << "\n"; exit(1); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad wait " << script_step->second << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad wait " << script_step->second << "\n"; exit(1); }
         } else if (now - wait_start > wait_ms) { demo_stream.in.clear(); wait_start = 0; ++script_step; }
       }
     }

@@ -174,14 +174,17 @@ using Script = std::vector<std::pair<std::string, std::string>>;
 Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
   Script ret; std::string ln, def_wait = std::to_string(def_wait_ms);
   while (std::getline(std::cin, ln)) {
-    const std::string::iterator first_non_space = std::find_if_not(ln.begin(), ln.end(), isspace);
-    if (ln.empty() || first_non_space == ln.end() || ln[0] == '#') continue; //ignore empty line or comment
+    if (ln.empty() || ln[0] == '#') continue; //ignore empty line or comment
     while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //strip \n and \r at line end
     if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1));
     else if (ln[0] == '?') ret.emplace_back("wait", ln.length() > 1 ? ln.substr(1) : def_wait);
     else {
       if (auto_wait && !ret.empty() && ret.back().first == "send") ret.emplace_back("wait", def_wait);
-      if (first_non_space != ln.end()) ln.erase(ln.begin(), first_non_space); //skip leading whitespace in command
+      //if command line starts with a space, remove it
+      //this allows e.g. " >foo" to issue command ">foo" that starts with >, i.e. the leading space escapes the >
+      //by just stripping a single space we also allow commands that start with whitespace, e.g. "  foo" -> " foo"
+      //the ArduMon command interpreter should in turn ignore leading whitespace, but the point may be to test that
+      if (ln[0] == ' ') ln.erase(0, 1);
       ret.emplace_back("send", ln);
     }
   }

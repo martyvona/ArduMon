@@ -17,6 +17,9 @@
 # ardumon_client will parse this entire script and store it in memory at program start before issuing the first command
 # so it is not currently possible to use ardumon_client with extremely long scripts that wouldn't fit in memory
 # or with piped input that does not terminate with an EOF in finite time
+#
+# ardumon_client will abort with nonzero exit code when the received response does not match a specified > line
+# or when --recv_timeout is enabled and a specified > line is not received in the allowed time
 
 quiet t
 ?

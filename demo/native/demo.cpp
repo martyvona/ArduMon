@@ -51,6 +51,7 @@
 #include <vector>
 #include <utility>
 #include <fstream>
+#include <limits>
 #include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
@@ -98,6 +99,9 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 #define AM_STREAM demo_stream
 #include "../demo.h"
 
+#define DEF_WAIT_MS 100
+#define DEF_RECV_TIMEOUT_MS 5000
+
 #ifdef DEMO_CLIENT
 struct termios orig_attribs;
 bool read_orig_attribs = false;
@@ -110,7 +114,7 @@ std::string com_path;
 void usage() {
 #ifdef DEMO_CLIENT
   std::string role = "_client";
-  std::string args = "[--binary_demo]|[--auto_wait[=ms]] [unix#]";
+  std::string args = "--binary_demo [--auto_wait[=ms]] [--recv_timeout[=ms]] [unix#]";
   std::string sfx = " [< ardumon_script.txt]";
 #else
   std::string role = "_server";
@@ -206,7 +210,7 @@ int main(int argc, const char **argv) {
 
   const char *com_file_or_path = 0;
   bool verbose = false, binary = false, auto_wait = false;
-  uint32_t def_wait_ms = 100;
+  uint32_t def_wait_ms = DEF_WAIT_MS, recv_timeout = 0;
   Script script;
 
   for (int i = 1; i < argc; i++) {
@@ -220,6 +224,14 @@ int main(int argc, const char **argv) {
           try { def_wait_ms = static_cast<uint32_t>(std::stoul(argv[i] + 12)); }
           catch (const std::invalid_argument &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
           catch (const std::out_of_range &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
+        }
+      }
+      else if (strncmp(argv[i], "--recv_timeout", 14) == 0) {
+        recv_timeout = DEF_RECV_TIMEOUT_MS;
+        if (strlen(argv[i]) > 14 && argv[i][14] == '=') {
+          try { recv_timeout = static_cast<uint32_t>(std::stoul(argv[i] + 15)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad --recv_timeout " << e.what() << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad --recv_timeout " << e.what() << "\n"; exit(1); }
         }
       }
 #else
@@ -336,6 +348,9 @@ int main(int argc, const char **argv) {
     std::cout << "reading ArduMon script from stdin... ";
     script = read_script(def_wait_ms, auto_wait);
     std::cout << script.size() << " steps\n";
+    std::cout << "default wait " << def_wait_ms << "ms\n";
+    if (recv_timeout > 0) std::cout << "receive timeout " << recv_timeout << "ms\n";
+    else std::cout << "receive timeout disabled\n";
   }
 
 #endif
@@ -353,7 +368,7 @@ int main(int argc, const char **argv) {
 
   auto script_step = script.begin();
   std::string script_response;
-  uint64_t wait_start = 0; uint32_t wait_ms = 0;
+  uint64_t wait_start = 0, recv_deadline = 0; uint32_t wait_ms = 0;
 
   while (!demo_done || demo_stream.out.size()) {
 
@@ -386,6 +401,7 @@ int main(int argc, const char **argv) {
 
     if (!client || binary) loop(); //call Arduino loop() method defined in demo.h
     else { //demo client text script mode
+      const uint64_t now = millis();
       if (script_step == script.end()) { demo_done = true; break; }
       const size_t step_num = script_step - script.begin();
       if (script_step->first == "send") {
@@ -394,6 +410,18 @@ int main(int argc, const char **argv) {
         for (size_t i = 0; i < nr; i++) demo_stream.out.put((i == nr - 1) ? '\n' : script_step->second[i]);
         ++script_step;
       } else if (script_step->first == "recv") {
+        if (recv_deadline) {
+          if (now > recv_deadline) {
+            std::cerr << "ERROR: script step " << step_num << " RECV timeout:\n"
+                      << "expected: " << script_step->second << "\n"
+                      << "no response in " << recv_timeout << "ms\n";
+            exit(1);
+          }
+        } else {
+          std::cout << "script step " << step_num << " RECV " << script_step->second << "\n";
+          if (recv_timeout > 0) recv_deadline = now + recv_timeout;
+          else recv_deadline = std::numeric_limits<uint64_t>::max();
+        }
         while (demo_stream.in.size()) script_response += demo_stream.in.get();
         auto start = script_response.begin(), end = script_response.end();
         while (start < end && (end = std::find(start, end, '\n')) != script_response.end()) {
@@ -406,17 +434,16 @@ int main(int argc, const char **argv) {
                       << "received: " << response_line << "\n";
             exit(1);
           }
-          std::cout << "script step " << step_num << " RECV " << script_step->second << "\n";
           if (response_line != script_step->second) {
-            std::cerr << "ERROR: script recv at step " << step_num << " mismatch:\n"
+            std::cerr << "ERROR: script step " << step_num << " RECV mismatch:\n"
                       << "expected: " << script_step->second << "\n"
                       << "received: " << response_line << "\n";
             exit(1);
           }
+          recv_deadline = 0;
           ++script_step;
         }
       } else if (script_step->first == "wait") {
-        const uint64_t now = millis();
         if (!wait_start) {
           std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n";
           wait_start = now;

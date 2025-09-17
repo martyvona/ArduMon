@@ -61,7 +61,7 @@ In binary mode ArduMon uses an 8 bit checksum for basic (but fallible) communica
 
 ## Flow Control
 
-Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  The included `ardumon_client` native program can send commands from a script file (or stream from another application).  While it is also possible to `cat` such commands directly to the serial port, the `ardumon_client` approach enables flow control by waiting for responses for each command.
+Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  The included `ardumon_client` native program can send commands from a script file.  While it is also possible to `cat` such commands directly to the serial port, the `ardumon_client` approach enables flow control by waiting for responses for each command.
 
 Binary mode clients can similarly implment flow control either by waiting a sufficient time between sending each command or by waiting for a response.
 
@@ -232,7 +232,7 @@ cd demo/native
 
 where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
 
-The text file format is described at the top of `ardumon_script.txt`.  That file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected, or to wait for responses without verifying them as a means of [flow control](#flow-control).
+The text file format is described at the top of `ardumon_script.txt`.  The rest of that file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts in the same format to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected and/or to wait for responses as a means of [flow control](#flow-control).
 
 #### Binary Mode
 

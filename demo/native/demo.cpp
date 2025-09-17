@@ -110,7 +110,7 @@ std::string com_path;
 void usage() {
 #ifdef DEMO_CLIENT
   std::string role = "_client";
-  std::string args = "[--binary_demo]|[--auto_throttle [ms]] [unix#]";
+  std::string args = "[--binary_demo]|[--auto_wait[=ms]] [unix#]";
   std::string sfx = " [< ardumon_script.txt]";
 #else
   std::string role = "_server";
@@ -171,17 +171,17 @@ void terminate_handler(int s) { terminated(); }
 
 using Script = std::vector<std::pair<std::string, std::string>>;
 
-Script read_script(const uint32_t def_throttle_ms, const bool auto_throttle) {
-  Script ret; std::string ln, def_throttle = std::to_string(def_throttle_ms);
+Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
+  Script ret; std::string ln, def_wait = std::to_string(def_wait_ms);
   while (std::getline(std::cin, ln)) {
-    std::string::iterator it;
-    if (ln.empty() || std::all_of(ln.begin(), ln.end(), isspace)) continue; //ignore empty line
-    if ((it = std::find_if_not(ln.begin(), ln.end(), isspace)) != ln.end() && *it == '#') continue; //ignore comment
-    while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //remove \n and \r
+    const std::string::iterator first_non_space = std::find_if_not(ln.begin(), ln.end(), isspace);
+    if (ln.empty() || first_non_space == ln.end() || ln[0] == '#') continue; //ignore empty line or comment
+    while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //strip \n and \r at line end
     if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1));
-    else if (ln[0] == '?') ret.emplace_back("throttle", ln.length() > 1 ? ln.substr(1) : def_throttle);
+    else if (ln[0] == '?') ret.emplace_back("wait", ln.length() > 1 ? ln.substr(1) : def_wait);
     else {
-      if (auto_throttle && !ret.empty() && ret.back().first == "send") ret.emplace_back("throttle", def_throttle);
+      if (auto_wait && !ret.empty() && ret.back().first == "send") ret.emplace_back("wait", def_wait);
+      if (first_non_space != ln.end()) ln.erase(ln.begin(), first_non_space); //skip leading whitespace in command
       ret.emplace_back("send", ln);
     }
   }
@@ -202,8 +202,8 @@ int main(int argc, const char **argv) {
   char buf[2048];
 
   const char *com_file_or_path = 0;
-  bool verbose = false, binary = false, auto_throttle = false;
-  uint32_t def_throttle_ms = 100;
+  bool verbose = false, binary = false, auto_wait = false;
+  uint32_t def_wait_ms = 100;
   Script script;
 
   for (int i = 1; i < argc; i++) {
@@ -211,12 +211,12 @@ int main(int argc, const char **argv) {
       if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
 #ifdef DEMO_CLIENT
       else if (strcmp(argv[i], "--binary_demo") == 0) binary = true;
-      else if (strcmp(argv[i], "--auto_throttle") == 0) {
-        auto_throttle = true;
-        if (i < argc-1 && strlen(argv[i]) > 0 && argv[i][0] != '-') {
-          try { def_throttle_ms = static_cast<uint32_t>(std::stoul(argv[++i])); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_throttle " << e.what() << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad --auto_throttle " << e.what() << "\n"; exit(1); }
+      else if (strncmp(argv[i], "--auto_wait", 11) == 0) {
+        auto_wait = true;
+        if (strlen(argv[i]) > 11 && argv[i][11] == '=') {
+          try { def_wait_ms = static_cast<uint32_t>(std::stoul(argv[i] + 12)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad --auto_wait " << e.what() << "\n"; exit(1); }
         }
       }
 #else
@@ -331,7 +331,7 @@ int main(int argc, const char **argv) {
 
   if (!binary) {
     std::cout << "reading ArduMon script from stdin... ";
-    script = read_script(def_throttle_ms, auto_throttle);
+    script = read_script(def_wait_ms, auto_wait);
     std::cout << script.size() << " steps\n";
   }
 
@@ -350,7 +350,7 @@ int main(int argc, const char **argv) {
 
   auto script_step = script.begin();
   std::string script_response;
-  uint64_t throttle_start = 0; uint32_t throttle_ms = 0;
+  uint64_t wait_start = 0; uint32_t wait_ms = 0;
 
   while (!demo_done || demo_stream.out.size()) {
 
@@ -412,15 +412,15 @@ int main(int argc, const char **argv) {
           }
           ++script_step;
         }
-      } else if (script_step->first == "throttle") {
+      } else if (script_step->first == "wait") {
         const uint64_t now = millis();
-        if (!throttle_start) {
-          std::cout << "script step " << step_num << " THROTTLE " << script_step->second << "\n";
-          throttle_start = now;
-          try { throttle_ms = static_cast<uint32_t>(std::stoul(script_step->second)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad throttle_ms " << e.what() << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad throttle_ms " << e.what() << "\n"; exit(1); }
-        } else if (now - throttle_start > throttle_ms) { demo_stream.in.clear(); throttle_start = 0; ++script_step; }
+        if (!wait_start) {
+          std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n";
+          wait_start = now;
+          try { wait_ms = static_cast<uint32_t>(std::stoul(script_step->second)); }
+          catch (const std::invalid_argument &e) { std::cerr << "bad wait_ms " << e.what() << "\n"; exit(1); }
+          catch (const std::out_of_range &e) { std::cerr << "bad wait_ms " << e.what() << "\n"; exit(1); }
+        } else if (now - wait_start > wait_ms) { demo_stream.in.clear(); wait_start = 0; ++script_step; }
       }
     }
     

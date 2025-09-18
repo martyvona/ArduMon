@@ -34,7 +34,7 @@ ArduMon also
 * uses no heap allocations
 * is implemented in a single header file
 * allows multiple instances; e.g. a text CLI on `Serial0` for user interaction and a binary packet interface on `Serial1` to communicate with another Arduino
-* includes a scripting tool `ardumon_client` to send canned command sequences and either verify expected responses (e.g. to implement automated test scripts) or just delay between commands for flow control.
+* includes a scripting tool `ardumon_client` to send canned command sequences and selectively either verify expected responses (e.g. to implement automated test scripts), ignore responses but delay between commands for flow control, and/or echo chosen responses for further use.
 
 In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `end_handler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `is_binary_mode()` and `is_text_mode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example like this in the `AM_Timer` class.
 

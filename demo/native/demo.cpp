@@ -110,18 +110,21 @@ int listen_fileno = -1;
 #endif
 int com_fileno = -1;
 std::string com_path;
+bool quiet = false;
 
 void usage() {
 #ifdef DEMO_CLIENT
   std::string role = "_client";
-  std::string args = "--binary_demo [--auto_wait[=ms]] [--recv_timeout[=ms]] [unix#]";
+  std::string args = "[--binary_demo] [--auto_wait[=ms]] [--recv_timeout[=ms]] [unix#]";
   std::string sfx = " [< ardumon_script.txt]";
 #else
   std::string role = "_server";
   std::string args = "[-b|--binary] ";
   std::string sfx = "";
 #endif
-  std::cerr << "USAGE: ardumon" << role << " [-v|--verbose] " << args <<  "com_file_or_path" << sfx << "\n"; exit(1);
+  std::cerr << "USAGE: ardumon" << role
+            << " [-v|--verbose] [-q|--quiet] " << args <<  "com_file_or_path" << sfx << "\n";
+  exit(1);
 }
 
 void status() {
@@ -148,11 +151,11 @@ void cleanup() {
   if (com_fileno >= 0) {
 #ifdef DEMO_CLIENT
     if (read_orig_attribs) {
-      std::cout << "restoring attributes on " << com_path << "\n";
+      if (!quiet) std::cout << "restoring attributes on " << com_path << "\n";
       if (tcsetattr(com_fileno, TCSANOW, &orig_attribs) != 0) perror(("error setting attribs on " + com_path).c_str());
     }
 #endif
-    std::cout << "closing " << com_path << "\n";
+    if (!quiet) std::cout << "closing " << com_path << "\n";
     close(com_fileno);
     com_fileno = -1;
   }
@@ -181,7 +184,8 @@ Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
     if (ln.empty() || ln[0] == '#') continue; //ignore empty line or comment
     while (ln.back() == '\n' || ln.back() == '\r') ln.pop_back(); //strip \n and \r at line end
     if (ln[0] == '>') ret.emplace_back("recv", ln.substr(1)); //note we have already stripped all \r and \n here
-    else if (ln[0] == '*') ret.emplace_back("recv", "\n"); //recv "\n" means receive a line but ignore its content
+    else if (ln[0] == '*') ret.emplace_back("recv", "*\n"); //recv "*\n" means receive line and ignore it
+    else if (ln[0] == '@') ret.emplace_back("recv", "@\n"); //recv "@\n" means receive line and echo it
     else if (ln[0] == '?') ret.emplace_back("wait", ln.length() > 1 ? ln.substr(1) : def_wait);
     else {
       if (auto_wait && !ret.empty() && ret.back().first == "send") ret.emplace_back("wait", def_wait);
@@ -195,6 +199,25 @@ Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
   }
   return ret;
 }
+
+bool is_ms_arg(const char *arg, const char *prefix) { return strncmp(arg, prefix, strlen(prefix)) == 0; }
+
+bool is_full_ms_arg(const char *arg, const char *prefix) {
+  const size_t pl = strlen(prefix);
+  return strlen(arg) > pl && arg[pl] == '=';
+}
+
+uint32_t parse_ms(const char *ms, const char *what) {
+  try {
+    const unsigned long v = std::stoul(ms);
+    if (v > std::numeric_limits<uint32_t>::max()) throw std::out_of_range("too big");
+    return static_cast<uint32_t>(v);
+  }
+  catch (const std::invalid_argument &e) { std::cerr << "invalid " << what << " " << ms << "\n"; exit(1); }
+  catch (const std::out_of_range &e) { std::cerr << "out of range " << what << " " << ms << "\n"; exit(1); }
+}
+
+uint32_t parse_ms_arg(const char *arg, const char *prefix) { return parse_ms(arg + strlen(prefix) + 1, prefix); }
 
 int main(int argc, const char **argv) {
 
@@ -217,25 +240,16 @@ int main(int argc, const char **argv) {
   for (int i = 1; i < argc; i++) {
     if (argv[i][0] == '-') {
       if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) verbose = true;
+      else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) quiet = true;
 #ifdef DEMO_CLIENT
       else if (strcmp(argv[i], "--binary_demo") == 0) binary = true;
-      else if (strncmp(argv[i], "--auto_wait", 11) == 0) {
+      else if (is_ms_arg(argv[i], "--auto_wait")) {
         auto_wait = true;
-        if (strlen(argv[i]) > 11 && argv[i][11] == '=') {
-          const char *ms = argv[i] + 12;
-          try { def_wait_ms = static_cast<uint32_t>(std::stoul(ms)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad --auto_wait " << ms << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad --auto_wait " << ms << "\n"; exit(1); }
-        }
+        if (is_full_ms_arg(argv[i], "--auto_wait")) def_wait_ms = parse_ms_arg(argv[i], "--auto_wait");
       }
-      else if (strncmp(argv[i], "--recv_timeout", 14) == 0) {
+      else if (is_ms_arg(argv[i], "--recv_timeout")) {
         recv_timeout = DEF_RECV_TIMEOUT_MS;
-        if (strlen(argv[i]) > 14 && argv[i][14] == '=') {
-          const char *ms = argv[i] + 15;
-          try { recv_timeout = static_cast<uint32_t>(std::stoul(ms)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad --recv_timeout " << ms << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad --recv_timeout " << ms << "\n"; exit(1); }
-        }
+        if (is_full_ms_arg(argv[i], "--recv_timeout")) recv_timeout = parse_ms_arg(argv[i], "--recv_timeout");
       }
 #else
       else if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true;
@@ -254,19 +268,21 @@ int main(int argc, const char **argv) {
   std::string role = binary ? "binary server" : "text server";
 #endif
 
-  std::cout << "ArduMon " << role << "\n";
+  if (!quiet) std::cout << "ArduMon " << role << "\n";
 
   if (!client || binary) setup(); //call Arduino setup() method defined in demo.h
 
 #ifndef DEMO_CLIENT
-  std::cout << "registered " << static_cast<int>(am.get_num_cmds()) << "/" << static_cast<int>(am.get_max_num_cmds())
-            << " command handlers\n";
+  if (!quiet) {
+    std::cout << "registered " << static_cast<int>(am.get_num_cmds())
+              << "/" << static_cast<int>(am.get_max_num_cmds()) << " command handlers\n";
+  }
   const bool is_socket = true;
   if (binary) {
-    std::cout << "switching to binary mode\n";
+    if (!quiet) std::cout << "switching to binary mode\n";
     am.set_binary_mode(true);
     demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
-  } else std::cout << "proceeding in text mode\n";
+  } else if (!quiet) std::cout << "proceeding in text mode\n";
 #else
   const bool is_socket = strncmp("unix#", com_file_or_path, 5) == 0;
   if (is_socket) com_file_or_path += 5;
@@ -290,7 +306,7 @@ int main(int argc, const char **argv) {
 
   //text or binary server: create com_path as unix socket and listen() on it
   if (exists(com_path) && is_empty(com_path)) {
-    std::cout << com_path << " exists and is empty, removing\n";
+    if (!quiet) std::cout << com_path << " exists and is empty, removing\n";
     unlink(com_path.c_str());
   }
   listen_fileno = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -300,18 +316,20 @@ int main(int argc, const char **argv) {
   }
   if (listen(listen_fileno, 1) < 0) { perror(("error listening on " + com_path).c_str()); exit(1); }
 
-  std::cout << role << ": waiting for connection on " << com_path << "...\n";
-  std::cout << "example connection(s):\n";
-  if (binary) std::cout << "ardumon_client --binary_demo unix#" << com_path << "\n";
-  else {
-    std::cout << "minicom -D unix#" << com_path << "\n";
-    std::cout << "ardumon_client unix#" << com_path << " < ardumon_script.txt\n";
+  if (!quiet) {
+    std::cout << role << ": waiting for connection on " << com_path << "...\n";
+    std::cout << "example connection(s):\n";
+    if (binary) std::cout << "ardumon_client --binary_demo unix#" << com_path << "\n";
+    else {
+      std::cout << "minicom -D unix#" << com_path << "\n";
+      std::cout << "ardumon_client unix#" << com_path << " < ardumon_script.txt\n";
+    }
+    std::cout << std::flush;
   }
-  std::cout << std::flush;
 
   com_fileno = accept(listen_fileno, NULL, NULL);
   if (com_fileno < 0) { perror(("error accepting connection on " + com_path).c_str()); exit(1); }
-  std::cout << "got connection on " << com_path << "\n";
+  if (!quiet) std::cout << "got connection on " << com_path << "\n";
 
 #else //DEMO_CLIENT
 
@@ -348,12 +366,14 @@ int main(int argc, const char **argv) {
   }
 
   if (!binary) {
-    std::cout << "reading ArduMon script from stdin... ";
+    if (!quiet) std::cout << "reading ArduMon script from stdin... ";
     script = read_script(def_wait_ms, auto_wait);
-    std::cout << script.size() << " steps\n";
-    std::cout << "default wait " << def_wait_ms << "ms\n";
-    if (recv_timeout > 0) std::cout << "receive timeout " << recv_timeout << "ms\n";
-    else std::cout << "receive timeout disabled\n";
+    if (!quiet) {
+      std::cout << script.size() << " steps\n";
+      std::cout << "default wait " << def_wait_ms << "ms\n";
+      if (recv_timeout > 0) std::cout << "receive timeout " << recv_timeout << "ms\n";
+      else std::cout << "receive timeout disabled\n";
+    }
   }
 
 #endif
@@ -408,7 +428,7 @@ int main(int argc, const char **argv) {
       if (script_step == script.end()) { demo_done = true; break; }
       const size_t step_num = script_step - script.begin();
       if (script_step->first == "send") {
-        std::cout << "script step " << step_num << " SEND " << script_step->second << "\n" << std::flush;
+        if (!quiet) std::cout << "script step " << step_num << " SEND " << script_step->second << "\n" << std::flush;
         nr = script_step->second.length() + 1;
         for (size_t i = 0; i < nr; i++) demo_stream.out.put((i == nr - 1) ? '\n' : script_step->second[i]);
         ++script_step;
@@ -421,10 +441,13 @@ int main(int argc, const char **argv) {
             exit(1);
           }
         } else {
-          std::cout << "script step " << step_num;
-          if (script_step->second != "\n")  std::cout << " RECV " << script_step->second << "\n";
-          else std::cout << " RECV_ANY\n";
-          std::cout << std::flush;
+          if (!quiet) {
+            std::cout << "script step " << step_num << " ";
+            if (script_step->second == "@\n") std::cout << "RECV_ECHO\n";
+            else if (script_step->second == "*\n") std::cout << "RECV_ANY\n";
+            else std::cout << "RECV " << script_step->second << "\n";
+            std::cout << std::flush;
+          }
           if (recv_timeout > 0) recv_deadline = now + recv_timeout;
           else recv_deadline = std::numeric_limits<uint64_t>::max();
         }
@@ -440,7 +463,8 @@ int main(int argc, const char **argv) {
                       << "received: " << response_line << "\n";
             exit(1);
           }
-          if (script_step->second != "\n" && response_line != script_step->second) {
+          if (script_step->second == "@\n") std::cout << response_line << "\n";
+          else if (script_step->second != "*\n" && response_line != script_step->second) {
             std::cerr << "ERROR: script step " << step_num << " RECV mismatch:\n"
                       << "expected: " << script_step->second << "\n"
                       << "received: " << response_line << "\n";
@@ -451,11 +475,8 @@ int main(int argc, const char **argv) {
         }
       } else if (script_step->first == "wait") {
         if (!wait_start) {
-          std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n" << std::flush;
-          wait_start = now;
-          try { wait_ms = static_cast<uint32_t>(std::stoul(script_step->second)); }
-          catch (const std::invalid_argument &e) { std::cerr << "bad wait " << script_step->second << "\n"; exit(1); }
-          catch (const std::out_of_range &e) { std::cerr << "bad wait " << script_step->second << "\n"; exit(1); }
+          if (!quiet) std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n" << std::flush;
+          wait_start = now; wait_ms = parse_ms(script_step->second.c_str(), "wait");
         } else if (now - wait_start > wait_ms) { demo_stream.in.clear(); wait_start = 0; ++script_step; }
       }
     }

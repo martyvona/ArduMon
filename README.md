@@ -62,7 +62,7 @@ In binary mode ArduMon uses an 8 bit checksum for basic (but fallible) communica
 
 ## Flow Control
 
-Flow control is also up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  The included `ardumon_client` native program can send commands from a script file.  While it is also possible to `cat` such commands directly to the serial port, the `ardumon_client` approach enables flow control by waiting for responses for each command.
+Flow control is up to the application.  In interactive use the operator can wait as appropriate and/or verify a response before sending another command.  The included `ardumon_client` native program can send commands from a script file.  While it is also possible to `cat` such commands directly to the serial port, the `ardumon_client` approach enables flow control by waiting for responses for each command (or simply delaying).
 
 Binary mode clients can similarly implment flow control either by waiting a sufficient time between sending each command or by waiting for a response.
 
@@ -70,7 +70,7 @@ Only one command is handled at a time.  If a new command starts coming in while 
 
 Operating systems also traditionally offer both [hardware](https://en.wikipedia.org/wiki/RTS/CTS) (RTS/CTS) and [software](https://en.wikipedia.org/wiki/Software_flow_control) (XON/XOFF) flow control for serial ports.  In most modern situations these should be disabled by default, but it is best to ensure this is the case when using ArduMon to communicate with a PC.  Otherwise communication could be inadvertently interrupted, particularly in binary mode with software flow control, where transmission from the PC would be halted whenever the XOFF character (ASCII 19) is received, meaning the communication channel is not [8-bit clean](https://en.wikipedia.org/wiki/8-bit_clean).  The [native demo](./demo/native/demo.cpp) shows one way to ensure serial port flow control is disabled using the `cfmakeraw()` and `tcsetattr()` UNIX APIs; another method is to use the `stty` command.
 
-## Text Mode
+## Text Mode Details
 
 For each command in text mode:
 
@@ -126,7 +126,7 @@ Supported backslash escape sequences in text mode:
 
 Integers are parsed and formatted in decimal or hexadecimal in text mode, and floating point numbers are parsed and formatted with optional scientific notation by default.
 
-## Binary Mode
+## Binary Mode Details
 
 Each command in binary mode is a packet consisting of
 
@@ -145,7 +145,7 @@ Multibyte quantities are read and written in little endian byte order in binary 
 
 ArduMon can be used to implement both sides of a binary communication link.  In one approach, the "server" side of the link registers command handlers, and the "client" side triggers those using the ArduMon `send_packet()` API.  Any returned packets can be handled by registering a universal handler with `set_universal_handler()` on the client ArduMon instance.  Another approach is for both the client and the server to register command handlers, and have the server response packets start with client command codes.  In fact it's not even necessary to designate one end as a "client" and the other as a "server"; both endpoints can symmetrically invoke commands on the other.  The included demos show some examples of using ArduMon for both sides of binary communication.
 
-## Included Demos
+## Included Demos and tools
 
 Several demonstrations of how ArduMon can be used are included in the `demo/` directory.  Follow the instructions below to [build](#building-the-demo-for-arduino) and [upload](#uploading-the-demo-to-an-arduino) them.
 

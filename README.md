@@ -152,7 +152,7 @@ Several demonstrations of how ArduMon can be used are included in the `demo/` di
 * `demo/demo.ino` shows how to use ArduMon to add a text CLI to an Arduino.  Follow the instructions below for how to [connect](#connecting-to-ardumon-in-text-mode) to it from a serial terminal program on a PC.
 * `demo/binary_server/binary_server.ino` shows how to use ArduMon to add a binary packet API to an Arduino, re-using mostly the same code as the text mode demo
 * `demo/binary_client/binary_client.ino` shows how to use ArduMon to also implement the "client" side of the binary commuinication; it's intended to be used with `binary_server.ino` running on one Arduino and `binary_client.ino` running on another Arduino.  Connect Serial1 TX on pin 11 of the first Arduino to the Serial1 RX on pin 10 of the second Arduino and vice-versa.  You can also connect each Arduino by USB to a computer to monitor the log output of each side of the demo.
-* `demo/native/demo.cpp` re-uses the same demo code as the Arduino demos but compiles directly to native executables `ardumon_server` and `ardumon_client` that run on a PC; this allows experimenting with ArduMon without an Arduino.  `ardumon_client` can also be used to run a mixed binary demo where the client runs on a PC and the server runs on an Arduino.  See below for more information on [how to build and run the native demos](#running-the-native-demos).
+* `demo/native/demo.cpp` re-uses the same demo code as the Arduino demos but compiles directly to native executables `ardumon_server` and `ardumon_client` that run on a PC; this allows experimenting with ArduMon without an Arduino.  `ardumon_client` can also be used to run a mixed binary demo where the client runs on a PC and the server runs on an Arduino.  `ardumon_client` can further be used as a [general purpose scripting tool to interact with any ArduMon text CLI](#connecting-the-native-client-to-an-arduino).
 
 ## Running the Native Demos
 
@@ -233,7 +233,11 @@ cd demo/native
 
 where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
 
-The text file format is described at the top of `ardumon_script.txt`.  The rest of that file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts in the same format to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally verify the responses are as expected and/or to wait for responses as a means of [flow control](#flow-control).
+The text file format is described at the top of `ardumon_script.txt`.  The rest of that file is specific to the ArduMon demo server, but you can use `ardumon_client` with custom scripts in the same format to drive any other ArduMon-based CLI.  It's also possible to simply `cat` a text file to the serial port to run ArduMon text commands, but using `ardumon_client` allows you to optionally
+
+* verify the responses are as expected
+* wait for responses as a means of [flow control](#flow-control)
+* echo selected responses for further use; combined with the `--quiet` command line option, those selected responses will be the *only* output of `ardumon_client`.
 
 #### Binary Mode
 

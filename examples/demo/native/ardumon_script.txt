@@ -8,13 +8,13 @@
 # to send a command starting with > or ? prefix it with at least one space
 # (the receiving ArduMon command interpreter should ignore any additional leading whitespace)
 #
-# lines starting with > are expected response lines (expected to be terminated with carriage return / newline pairs)
+# lines starting with > are expected response lines
 #
 # lines starting with * are similar to > but don't check the response value, just that there was one line of response
 #
 # lines starting with @ are similar to * but echo the response line to the stdout of ardumon_client
 #
-# lines starting ?[ms] wait for the specified amount of time (default 100ms) and then discard any received input
+# lines starting ? or ?digits wait for the specified amount of time (default 100ms) and then discard any received input
 # the default wait time can be overriden with ardumon_client --auto_wait
 # the --auto_wait option also causes a ? line to be inferred after each command line with no subsequent > or ? line
 #

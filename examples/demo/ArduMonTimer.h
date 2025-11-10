@@ -8,19 +8,19 @@
  *
  * This is a countdown timer which demonstrates several ways ArduMon commands can send data over time.
  *
- * In synchronous text mode the AM_Timer::start() command does not end until the timer reaches zero, or the user stops
- * it by hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically reported to
- * the user using VT100 control codes to create a rolling counter that overwrites itself in the terminal without
- * scrolling.
+ * In synchronous text mode the ArduMonTimer::start() command does not end until the timer reaches zero, or the user
+ * stops it by hitting any key.  The Arduino loop() function is not blocked.  The remaining time is periodically
+ * reported to the user using VT100 control codes to create a rolling counter that overwrites itself in the terminal
+ * without scrolling.
  * 
- * In asynchronous text mode the AM_Timer::start() command ends quickly, but the timer keeps running.  The time can be
- * requested later with AM_Timer::send(), and the timer can be stopped with AM_Timer::stop().
+ * In asynchronous text mode the ArduMonTimer::start() command ends quickly, but the timer keeps running.  The time can
+ * be requested later with ArduMonTimer::send(), and the timer can be stopped with ArduMonTimer::stop().
  * 
  * Synchronous and asynchronous binary modes are similar to the corresponding text modes, except the time reports are
  * sent as binary packets instead of text and VT100 control codes.  These packets can either start with a configurable
  * command code or not.  This demonstrates that the receiver, which can be a separate instance of ArduMon running on
  * another processor, can receive response packets either as incoming commands or as generic packets using the ArduMon
- * set_universal_handler() facility.
+ * setUniversalHandler() facility.
  *
  * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
  *
@@ -37,17 +37,17 @@
  * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-template <typename AM> class AM_Timer {
+template <typename AM> class ArduMonTimer {
 public:
 
-  struct Cmd : public AM::Runnable { AM_Timer& tm; Cmd(AM_Timer &_tm) : tm(_tm) {} };
+  struct Cmd : public AM::Runnable { ArduMonTimer& tm; Cmd(ArduMonTimer &_tm) : tm(_tm) {} };
   struct StartCmd : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.start(am); } };
   struct StopCmd  : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.stop(am); } };
   struct GetCmd   : public Cmd { using Cmd::Cmd; bool run(AM &am) { return Cmd::tm.send(am); } };
 
   StartCmd start_cmd; StopCmd stop_cmd; GetCmd get_cmd;
 
-  AM_Timer() : start_cmd(*this), stop_cmd(*this), get_cmd(*this) {}
+  ArduMonTimer() : start_cmd(*this), stop_cmd(*this), get_cmd(*this) {}
 
   bool start(AM &am) {
 
@@ -67,45 +67,45 @@ public:
     bin_response_code = -1;
     if (am.argc() > 6 && !am.recv(bin_response_code)) return false;
 
-    if (am.is_text_mode()) {
+    if (am.isTextMode()) {
       //send()s cannot error in text mode
-      am.send_raw(F("counting down from "))
-        .send_raw(h).send_raw(':').send_raw(m, 2|AM::FMT_PAD_ZERO).send_raw(':').send_raw(s, 2|AM::FMT_PAD_ZERO)
-        .send_raw(F(", accel=")).send_raw(accel)
-        .send_raw(!is_synchronous() ? F(", async=true") : F(", hit any key to cancel..."))
-        .send_CRLF(true);
-      if (is_synchronous())
-        am.vt100_cursor_hidden()
-          //.vt100_set_attr(AM::VT100_ATTR_REVERSE)
-          //.vt100_set_attr(AM::VT100_ATTR_BLINK)
-          //.vt100_set_attr(AM::VT100_ATTR_BRIGHT)
-          //.vt100_set_attr(AM::VT100_ATTR_UNDERSCORE)
-          .vt100_set_color(AM::VT100_FOREGROUND, AM::VT100_CYAN);
+      am.sendRaw(F("counting down from "))
+        .sendRaw(h).sendRaw(':').sendRaw(m, 2|AM::FMT_PAD_ZERO).sendRaw(':').sendRaw(s, 2|AM::FMT_PAD_ZERO)
+        .sendRaw(F(", accel=")).sendRaw(accel)
+        .sendRaw(!isSynchronous() ? F(", async=true") : F(", hit any key to cancel..."))
+        .sendCRLF(true);
+      if (isSynchronous())
+        am.vt100CursorHidden()
+          //.vt100SetAttr(AM::VT100_ATTR_REVERSE)
+          //.vt100SetAttr(AM::VT100_ATTR_BLINK)
+          //.vt100SetAttr(AM::VT100_ATTR_BRIGHT)
+          //.vt100SetAttr(AM::VT100_ATTR_UNDERSCORE)
+          .vt100SetColor(AM::VT100_FOREGROUND, AM::VT100_CYAN);
     }
 
     start_ms = last_send_ms = millis();
     elapsed_ms = 0;
     running = true;
 
-    if (!is_synchronous()) return am.end_handler();
+    if (!isSynchronous()) return am.endHandler();
     else return send(am, start_ms);
   }
 
-  bool stop(AM &am) { running = false; return am.end_handler(); }
+  bool stop(AM &am) { running = false; return am.endHandler(); }
 
   bool send(AM &am, const uint64_t now) {
     last_send_ms = now;
-    if (am.is_text_mode()) {
+    if (am.isTextMode()) {
       const uint8_t h = remaining_ms / (3600 * 1000ul);
       const uint8_t m = (remaining_ms - h * 3600 * 1000ul) / (60 * 1000ul);
       const uint8_t s = (remaining_ms - (h * 3600 + m * 60) * 1000ul) / 1000ul;
       const uint16_t ms = remaining_ms - (h * 3600 + m * 60 + s) * 1000ul;
-      if (is_synchronous()) am.vt100_clear_line();
-      am.send_raw(h, 3|AM::FMT_PAD_ZERO).send_raw(':')
-        .send_raw(m, 2|AM::FMT_PAD_ZERO).send_raw(':')
-        .send_raw(s, 2|AM::FMT_PAD_ZERO).send_raw('.').send_raw(ms, 3|AM::FMT_PAD_ZERO);
-      if (is_synchronous() && !running) am.vt100_cursor_visible().vt100_set_attr(AM::VT100_ATTR_RESET);
-      if (!is_synchronous() || !running) am.send_CRLF(true);
+      if (isSynchronous()) am.vt100ClearLine();
+      am.sendRaw(h, 3|AM::FMT_PAD_ZERO).sendRaw(':')
+        .sendRaw(m, 2|AM::FMT_PAD_ZERO).sendRaw(':')
+        .sendRaw(s, 2|AM::FMT_PAD_ZERO).sendRaw('.').sendRaw(ms, 3|AM::FMT_PAD_ZERO);
+      if (isSynchronous() && !running) am.vt100CursorVisible().vt100SetAttr(AM::VT100_ATTR_RESET);
+      if (!isSynchronous() || !running) am.sendCRLF(true);
       return true; //send()s cannot error in text mode
     } else { //binary response; 2^32 msec ~= 49 days, but we are limited to about 11 days since h,m,s <= 255
       return (bin_response_code < 0 || bin_response_code > 255 || am.send(static_cast<uint8_t>(bin_response_code))) &&
@@ -113,25 +113,25 @@ public:
         .send(static_cast<uint32_t>(total_ms))
         .send(static_cast<uint32_t>(elapsed_ms))
         .send(static_cast<uint32_t>(remaining_ms))
-        .send_packet();
+        .sendPacket();
     }
   }
 
-  bool send(AM &am) { return send(am, millis()) && am.end_handler(); }
+  bool send(AM &am) { return send(am, millis()) && am.endHandler(); }
 
-  bool is_running() { return running; };
+  bool isRunning() { return running; };
 
-  bool is_synchronous() { return sync_throttle_ms >= 0; }
+  bool isSynchronous() { return sync_throttle_ms >= 0; }
 
   bool tick(AM &am) {
     if (!running) return false;
     const uint64_t now = millis();
     elapsed_ms = static_cast<uint32_t>(millis() - start_ms) * accel; //elapsed_ms > total_ms if not tick()ed enough
     remaining_ms = elapsed_ms <= total_ms ? total_ms - elapsed_ms : 0;
-    if (remaining_ms == 0 || (is_synchronous() && am.is_text_mode() && am.get_key() != 0)) running = false;
-    if (is_synchronous()) {
+    if (remaining_ms == 0 || (isSynchronous() && am.isTextMode() && am.getKey() != 0)) running = false;
+    if (isSynchronous()) {
       if (now - last_send_ms >= sync_throttle_ms || !running) send(am, now);
-      if (!running) am.end_handler();
+      if (!running) am.endHandler();
     }
     return running;
   }

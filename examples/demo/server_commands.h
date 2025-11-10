@@ -36,20 +36,20 @@ int strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, r
 #endif
 #endif //on native builds instead use strcmp_P() shim defined in native/arduino_shims.h
 
-AM_Timer<AM> timer;
+ArduMonTimer<AM> timer;
 
-bool help(AM &am) { return am.send_cmds().end_handler(); }
+bool help(AM &am) { return am.sendCmds().endHandler(); }
 
-bool set_quiet(AM &am) { return am.set_txt_echo(false).set_txt_prompt(0).end_handler(); }
+bool setQuiet(AM &am) { return am.setTextEcho(false).setTextPrompt(static_cast<const char *>(0)).endHandler(); }
 
-bool argc(AM &am) { return am.send(am.argc()).end_handler(); }
+bool argc(AM &am) { return am.send(am.argc()).endHandler(); }
 
-bool gcc(AM &am) { const char *name; return am.skip().recv(name).send(am.get_cmd_code(name)).end_handler(); }
+bool gcc(AM &am) { const char *name; return am.skip().recv(name).send(am.getCmdCode(name)).endHandler(); }
 
-bool echo_bool(AM &am) {
+bool echoBool(AM &am) {
   bool v; if (!am.skip().recv(v)) return false;
   AM::BoolStyle style = AM::BoolStyle::TRUE_FALSE; bool upper_case = false;
-  if (am.is_text_mode()) {
+  if (am.isTextMode()) {
     const uint8_t argc = am.argc();
     if (argc > 2) {
       const char *style_str;
@@ -62,13 +62,13 @@ bool echo_bool(AM &am) {
     }
     if (argc > 3 && !am.recv(upper_case)) return false;
   }
-  return am.send(v, style, upper_case).end_handler();
+  return am.send(v, style, upper_case).endHandler();
 }
 
-template <typename T> bool echo_int(AM &am) {
+template <typename T> bool echoInt(AM &am) {
   T v = 0; if (!am.skip().recv(v)) return false;
   bool hex = false, pad_zero = false, pad_right = false; uint8_t width = 0;
-  if (am.is_text_mode()) {
+  if (am.isTextMode()) {
     const uint8_t argc = am.argc();
     if (argc > 2 && !am.recv(hex)) return false;
     if (argc > 3 && !am.recv(width)) return false;
@@ -78,42 +78,42 @@ template <typename T> bool echo_int(AM &am) {
   }
   const uint8_t fmt =
     width | (hex ? AM::FMT_HEX : 0) | (pad_zero ? AM::FMT_PAD_ZERO : 0) | (pad_right ? AM::FMT_PAD_RIGHT : 0);
-  if (!am.is_binary_mode() && pad_right && !pad_zero) return am.send_raw(v, fmt).send('|').end_handler();
-  else return am.send(v, fmt).end_handler();
+  if (!am.isBinaryMode() && pad_right && !pad_zero) return am.sendRaw(v, fmt).send('|').endHandler();
+  else return am.send(v, fmt).endHandler();
 }
 
-template <typename T> bool echo_flt(AM &am) {
+template <typename T> bool echoFloatOrDouble(AM &am) {
   T v = 0; if (!am.skip().recv(v)) return false;
   bool scientific = false; int8_t precision = -1, width = -1;
-  if (am.is_text_mode()) {
+  if (am.isTextMode()) {
     const uint8_t argc = am.argc();
     if (argc > 2 && !am.recv(scientific)) return false;
     if (argc > 3 && !am.recv(precision)) return false;
     if (argc > 4 && !am.recv(width)) return false;
   }
-  return am.send(v, scientific, precision, width).end_handler();
+  return am.send(v, scientific, precision, width).endHandler();
 }
 
-bool echo_char(AM &am) { char v = 0; return am.skip().recv_char(v).send_char(v).end_handler(); }
-bool echo_str(AM &am) { const char* v = 0; return am.skip().recv(v).send(v).end_handler(); }
-bool echo_u8(AM &am) { return echo_int<uint8_t>(am); }
-bool echo_s8(AM &am) { return echo_int<int8_t>(am); }
-bool echo_u16(AM &am) { return echo_int<uint16_t>(am); }
-bool echo_s16(AM &am) { return echo_int<int16_t>(am); }
-bool echo_u32(AM &am) { return echo_int<uint32_t>(am); }
-bool echo_s32(AM &am) { return echo_int<int32_t>(am); }
+bool echoChar(AM &am) { char v = 0; return am.skip().recvChar(v).sendChar(v).endHandler(); }
+bool echoStr(AM &am) { const char* v = 0; return am.skip().recv(v).send(v).endHandler(); }
+bool echoU8(AM &am) { return echoInt<uint8_t>(am); }
+bool echoS8(AM &am) { return echoInt<int8_t>(am); }
+bool echoU16(AM &am) { return echoInt<uint16_t>(am); }
+bool echoS16(AM &am) { return echoInt<int16_t>(am); }
+bool echoU32(AM &am) { return echoInt<uint32_t>(am); }
+bool echoS32(AM &am) { return echoInt<int32_t>(am); }
 #ifdef WITH_INT64
-bool echo_u64(AM &am) { return echo_int<uint64_t>(am); }
-bool echo_s64(AM &am) { return echo_int<int64_t>(am); }
+bool echoU64(AM &am) { return echoInt<uint64_t>(am); }
+bool echoS64(AM &am) { return echoInt<int64_t>(am); }
 #endif
 #ifdef WITH_FLOAT
-bool echo_float(AM &am) { return echo_flt<float>(am); }
+bool echoFloat(AM &am) { return echoFloatOrDouble<float>(am); }
 #ifdef WITH_DOUBLE
-bool echo_double(AM &am) { return echo_flt<double>(am); }
+bool echoDouble(AM &am) { return echoFloatOrDouble<double>(am); }
 #endif
 #endif
 
-bool echo_multiple(AM &am) {
+bool echoMultiple(AM &am) {
 
   if (!am.skip()) return false; // skip command token/code
   
@@ -125,7 +125,7 @@ bool echo_multiple(AM &am) {
 
     const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
 
-    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recv_char(v).send(v)) return false; }
+    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recvChar(v).send(v)) return false; }
     else if (strcmp_P(type, F("str")) == 0) { const char* v; if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("bll")) == 0) { bool v;        if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u08")) == 0) { uint8_t v;     if (!am.recv(v).send(v)) return false; }
@@ -146,54 +146,54 @@ bool echo_multiple(AM &am) {
     else return false;
 #endif
   }
-  return am.end_handler();
+  return am.endHandler();
 }
 
 float float_param = 0;
-bool set_float_param(AM &am) { return am.skip().recv(float_param).end_handler(); }
-bool get_float_param(AM &am) { return am.skip().send(float_param).end_handler(); }
+bool setFloatParam(AM &am) { return am.skip().recv(float_param).endHandler(); }
+bool getFloatParam(AM &am) { return am.skip().send(float_param).endHandler(); }
 
 bool quit(AM &am) {
-  print(am.is_binary_mode() ? F("binary") : F("text")); print(F(" server done, "));
+  print(am.isBinaryMode() ? F("binary") : F("text")); print(F(" server done, "));
   print(num_errors); print(F(" total errors")); println();
   demo_done = true;
   return true;
 }
 
-void add_cmds() {
+void addCmds() {
 
 #define ADD_CMD(func, name, desc) \
-  if (!am.add_cmd((func), F(name), F(desc))) { print(AM::err_msg(am.clear_err())); println(); }
+  if (!am.addCmd((func), F(name), F(desc))) { print(AM::errMsg(am.clearErr())); println(); }
 
   ADD_CMD(gcc, "gcc", "name | get command code");
   ADD_CMD(help, "help", "show commands");
-  ADD_CMD(set_quiet, "quiet", "disable text echo and prompt");
+  ADD_CMD(setQuiet, "quiet", "disable text echo and prompt");
   ADD_CMD(argc, "argc", "show arg count");
   ADD_CMD(&(timer.start_cmd), "ts", "hours mins secs [accel [sync_throttle_ms|-1 [bin_response_code]]] | start timer");
   ADD_CMD(&(timer.stop_cmd), "to", "stop timer");
   ADD_CMD(&(timer.get_cmd), "tg", "get timer");
-  ADD_CMD(echo_char, "ec", "arg | echo char");
-  ADD_CMD(echo_str, "es", "arg | echo str");
-  ADD_CMD(echo_bool, "eb", "arg [style [upper_case]] | echo bool");
-  ADD_CMD(echo_u8, "eu8", "arg [hex [width [pad_zero [pad_right]]]] | echo uint8");
-  ADD_CMD(echo_s8, "es8", "arg [hex [width [pad_zero [pad_right]]]] | echo int8");
-  ADD_CMD(echo_u16, "eu16", "arg [hex [width [pad_zero [pad_right]]]] | echo uint16");
-  ADD_CMD(echo_s16, "es16", "arg [hex [width [pad_zero [pad_right]]]] | echo int16");
-  ADD_CMD(echo_u32, "eu32", "arg [hex [width [pad_zero [pad_right]]]] | echo uint32");
-  ADD_CMD(echo_s32, "es32", "arg [hex [width [pad_zero [pad_right]]]] | echo int32");
+  ADD_CMD(echoChar, "ec", "arg | echo char");
+  ADD_CMD(echoStr, "es", "arg | echo str");
+  ADD_CMD(echoBool, "eb", "arg [style [upper_case]] | echo bool");
+  ADD_CMD(echoU8, "eu8", "arg [hex [width [pad_zero [pad_right]]]] | echo uint8");
+  ADD_CMD(echoS8, "es8", "arg [hex [width [pad_zero [pad_right]]]] | echo int8");
+  ADD_CMD(echoU16, "eu16", "arg [hex [width [pad_zero [pad_right]]]] | echo uint16");
+  ADD_CMD(echoS16, "es16", "arg [hex [width [pad_zero [pad_right]]]] | echo int16");
+  ADD_CMD(echoU32, "eu32", "arg [hex [width [pad_zero [pad_right]]]] | echo uint32");
+  ADD_CMD(echoS32, "es32", "arg [hex [width [pad_zero [pad_right]]]] | echo int32");
 #ifdef WITH_INT64
-  ADD_CMD(echo_u64, "eu64", "arg [hex [width [pad_zero [pad_right]]]] | echo uint64");
-  ADD_CMD(echo_s64, "es64", "arg [hex [width [pad_zero [pad_right]]]] | echo int64");
+  ADD_CMD(echoU64, "eu64", "arg [hex [width [pad_zero [pad_right]]]] | echo uint64");
+  ADD_CMD(echoS64, "es64", "arg [hex [width [pad_zero [pad_right]]]] | echo int64");
 #endif
 #ifdef WITH_FLOAT
-  ADD_CMD(echo_float, "ef", "arg [scientific [precision [width]]] | echo float");
+  ADD_CMD(echoFloat, "ef", "arg [scientific [precision [width]]] | echo float");
 #ifdef WITH_DOUBLE
-  ADD_CMD(echo_double, "ed", "arg [scientific [precision [width]]] | echo double");
+  ADD_CMD(echoDouble, "ed", "arg [scientific [precision [width]]] | echo double");
 #endif
 #endif
-  ADD_CMD(echo_multiple, "em", "format_string args... | echo multiple args based on format");
-  ADD_CMD(set_float_param, "sfp", "arg | set float param");
-  ADD_CMD(get_float_param, "gfp", "get float param");
+  ADD_CMD(echoMultiple, "em", "format_string args... | echo multiple args based on format");
+  ADD_CMD(setFloatParam, "sfp", "arg | set float param");
+  ADD_CMD(getFloatParam, "gfp", "get float param");
   ADD_CMD(quit, "quit", "quit");
 
 #undef ADD_CMD

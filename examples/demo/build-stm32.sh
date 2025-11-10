@@ -35,4 +35,4 @@ what=`pwd`
 what=${what##*/}
 echo "building $what for $fqbn $2"
 
-arduino-cli compile --fqbn $fqbn --board-options "pnum=$2,usb=$USB" --libraries $script_dir/../ -e .
+arduino-cli compile --fqbn $fqbn --board-options "pnum=$2,usb=$USB" --libraries $script_dir/../../ --libraries $script_dir/../ -e .

@@ -101,6 +101,7 @@ BufStream<SERIAL_IN_BUF_SZ, SERIAL_OUT_BUF_SZ> demo_stream;
 
 #define DEF_WAIT_MS 100
 #define DEF_RECV_TIMEOUT_MS 5000
+#define DEF_BAUD 115200
 
 #ifdef DEMO_CLIENT
 struct termios orig_attribs;
@@ -115,7 +116,7 @@ bool quiet = false;
 void usage() {
 #ifdef DEMO_CLIENT
   std::string role = "_client";
-  std::string args = "[--binary_demo] [--auto_wait[=ms]] [--recv_timeout[=ms]] [unix#]";
+  std::string args = "[--binary_demo] [--auto_wait[=ms]] [--recv_timeout[=ms]] [--speed=baud] [unix#]";
   std::string sfx = " [< ardumon_script.txt]";
 #else
   std::string role = "_server";
@@ -130,13 +131,13 @@ void usage() {
 void status() {
   std::cout << demo_stream.in.status() << "\n";
   std::cout << demo_stream.out.status() << "\n";
-  std::cout << "ArduMon receive buffer: " << am.get_recv_buf_used() << "/" << am.get_recv_buf_size() << " used\n";
-  std::cout << "ArduMon response buffer: " << am.get_send_buf_used() << "/" << am.get_send_buf_size() << " used\n";
+  std::cout << "ArduMon receive buffer: " << am.getRecvBufUsed() << "/" << am.getRecvBufSize() << " used\n";
+  std::cout << "ArduMon response buffer: " << am.getSendBufUsed() << "/" << am.getSendBufSize() << " used\n";
   std::string state = "idle";
-  if (am.is_receiving()) state = "receiving";
-  else if (am.is_handling()) state = "handling";
-  std::cout << "ArduMon " << state << (am.is_binary_mode() ? " (binary)" : " (text)") << "\n";
-  AM::millis_t rtm = am.get_recv_timeout_ms();
+  if (am.isReceiving()) state = "receiving";
+  else if (am.isHandling()) state = "handling";
+  std::cout << "ArduMon " << state << (am.isBinaryMode() ? " (binary)" : " (text)") << "\n";
+  AM::millis_t rtm = am.getRecvTimeoutMS();
   if (rtm > 0) std::cout << "receive timeout " << rtm << "ms\n";
   std::cout << "com file: " << com_path << "\n" << std::flush;
 }
@@ -200,14 +201,14 @@ Script read_script(const uint32_t def_wait_ms, const bool auto_wait) {
   return ret;
 }
 
-bool is_ms_arg(const char *arg, const char *prefix) { return strncmp(arg, prefix, strlen(prefix)) == 0; }
+bool is_int_arg(const char *arg, const char *prefix) { return strncmp(arg, prefix, strlen(prefix)) == 0; }
 
-bool is_full_ms_arg(const char *arg, const char *prefix) {
+bool is_full_int_arg(const char *arg, const char *prefix) {
   const size_t pl = strlen(prefix);
   return strlen(arg) > pl && arg[pl] == '=';
 }
 
-uint32_t parse_ms(const char *ms, const char *what) {
+uint32_t parse_int(const char *ms, const char *what) {
   try {
     const unsigned long v = std::stoul(ms);
     if (v > std::numeric_limits<uint32_t>::max()) throw std::out_of_range("too big");
@@ -217,7 +218,7 @@ uint32_t parse_ms(const char *ms, const char *what) {
   catch (const std::out_of_range &e) { std::cerr << "out of range " << what << " " << ms << "\n"; exit(1); }
 }
 
-uint32_t parse_ms_arg(const char *arg, const char *prefix) { return parse_ms(arg + strlen(prefix) + 1, prefix); }
+uint32_t parse_int_arg(const char *arg, const char *prefix) { return parse_int(arg + strlen(prefix) + 1, prefix); }
 
 int main(int argc, const char **argv) {
 
@@ -235,6 +236,7 @@ int main(int argc, const char **argv) {
   const char *com_file_or_path = 0;
   bool verbose = false, binary = false, auto_wait = false;
   uint32_t def_wait_ms = DEF_WAIT_MS, recv_timeout = 0;
+  speed_t speed;
   Script script;
 
   for (int i = 1; i < argc; i++) {
@@ -243,13 +245,14 @@ int main(int argc, const char **argv) {
       else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) quiet = true;
 #ifdef DEMO_CLIENT
       else if (strcmp(argv[i], "--binary_demo") == 0) binary = true;
-      else if (is_ms_arg(argv[i], "--auto_wait")) {
+      else if (is_int_arg(argv[i], "--auto_wait")) {
         auto_wait = true;
-        if (is_full_ms_arg(argv[i], "--auto_wait")) def_wait_ms = parse_ms_arg(argv[i], "--auto_wait");
-      }
-      else if (is_ms_arg(argv[i], "--recv_timeout")) {
+        if (is_full_int_arg(argv[i], "--auto_wait")) def_wait_ms = parse_int_arg(argv[i], "--auto_wait");
+      } else if (is_int_arg(argv[i], "--recv_timeout")) {
         recv_timeout = DEF_RECV_TIMEOUT_MS;
-        if (is_full_ms_arg(argv[i], "--recv_timeout")) recv_timeout = parse_ms_arg(argv[i], "--recv_timeout");
+        if (is_full_int_arg(argv[i], "--recv_timeout")) recv_timeout = parse_int_arg(argv[i], "--recv_timeout");
+      } else if (is_full_int_arg(argv[i], "--speed")) {
+        speed = parse_int_arg(argv[i], "--speed");
       }
 #else
       else if (strcmp(argv[i], "-b") == 0 || strcmp(argv[i], "--binary") == 0) binary = true;
@@ -274,13 +277,13 @@ int main(int argc, const char **argv) {
 
 #ifndef DEMO_CLIENT
   if (!quiet) {
-    std::cout << "registered " << static_cast<int>(am.get_num_cmds())
-              << "/" << static_cast<int>(am.get_max_num_cmds()) << " command handlers\n";
+    std::cout << "registered " << static_cast<int>(am.getNumCmds())
+              << "/" << static_cast<int>(am.getMaxNumCmds()) << " command handlers\n";
   }
   const bool is_socket = true;
   if (binary) {
     if (!quiet) std::cout << "switching to binary mode\n";
-    am.set_binary_mode(true);
+    am.setBinaryMode(true);
     demo_stream.out.clear(); //the demo> text prompt was already sent; clear it
   } else if (!quiet) std::cout << "proceeding in text mode\n";
 #else
@@ -351,7 +354,10 @@ int main(int argc, const char **argv) {
 
     cfmakeraw(&t); //put the serial port in "raw" binary mode
 
-    if (cfsetspeed(&t, B115200) != 0) { perror(("error setting 115200 baud on " + com_path).c_str()); exit(1); }
+    if (cfsetspeed(&t, speed) != 0){
+      perror(("error settig " + std::to_string(speed) + "baud on " + com_path).c_str());
+      exit(1);
+    }
 
     //disabling HUPCL (hang up on close) like this should be equivalent to stty -hupcl
     //t.c_cflag &= ~HUPCL;
@@ -383,7 +389,7 @@ int main(int argc, const char **argv) {
   const auto log = [&](const char *what, const uint8_t b) {
     if (verbose) {
       const std::string pad = b < 10 ? "  " : b < 100 ? " " : "";
-      std::cout << role << " " << what << " " << pad << +b << " 0x" << AM::to_hex(b >> 4) << AM::to_hex(b);
+      std::cout << role << " " << what << " " << pad << +b << " 0x" << AM::toHex(b >> 4) << AM::toHex(b);
       if (b >= 32 && b <= 126) std::cout << " '" << b << "'";
       std::cout << "\n" << std::flush;
     }
@@ -476,7 +482,7 @@ int main(int argc, const char **argv) {
       } else if (script_step->first == "wait") {
         if (!wait_start) {
           if (!quiet) std::cout << "script step " << step_num << " WAIT " << script_step->second << "\n" << std::flush;
-          wait_start = now; wait_ms = parse_ms(script_step->second.c_str(), "wait");
+          wait_start = now; wait_ms = parse_int(script_step->second.c_str(), "wait");
         } else if (now - wait_start > wait_ms) { demo_stream.in.clear(); wait_start = 0; ++script_step; }
       }
     }

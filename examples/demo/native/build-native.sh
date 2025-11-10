@@ -20,8 +20,8 @@ OPTS="$OPTS -O3"
 fi
 
 echo "building native ardumon_server${DBG}..."
-g++ $OPTS -I${script_dir}/../../src -o ardumon_server demo.cpp || exit $?
+g++ $OPTS -I${script_dir}/../../../src -o ardumon_server demo.cpp || exit $?
 
 echo "building native ardumon_client${DBG}..."
-g++ $OPTS -I${script_dir}/../../src -o ardumon_client -DDEMO_CLIENT demo.cpp || exit $?
+g++ $OPTS -I${script_dir}/../../../src -o ardumon_client -DDEMO_CLIENT demo.cpp || exit $?
 

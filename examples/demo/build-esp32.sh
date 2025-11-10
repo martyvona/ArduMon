@@ -15,4 +15,4 @@ what=`pwd`
 what=${what##*/}
 echo "building $what for $fqbn"
 
-arduino-cli compile --fqbn $fqbn --libraries $script_dir/../ -e .
+arduino-cli compile --fqbn $fqbn --libraries $script_dir/../../ --libraries $script_dir/../ -e .

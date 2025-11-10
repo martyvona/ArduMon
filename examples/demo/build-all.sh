@@ -11,5 +11,5 @@ echo "\nbuilding binary server for Arduino platforms..."
 echo "\nbuilding binary client for Arduino platforms..."
 (cd binary_client && ./build-all.sh) || exit
 
-echo "\nbuilding for native demo client and server..."
+echo "\nbuilding native demo client and server..."
 (cd native && ./build-native.sh) || exit

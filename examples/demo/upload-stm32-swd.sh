@@ -10,7 +10,7 @@ if [ $# -lt 2 ]; then
 fi
 
 STM32_CUBE_OS_X_NEW=/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin
-if [ -d $STM32_CUBE_OS_X_NEW ]; then export PATH=$STM32_CUBE_OS_X_NEW:$PATH; fi
+if [[ -d $STM32_CUBE_OS_X_NEW ]]; then export PATH=$STM32_CUBE_OS_X_NEW:$PATH; fi
 
 fqbn=$1
 board=$2

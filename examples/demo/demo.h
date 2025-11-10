@@ -6,9 +6,9 @@
  * This is the main code of the demo.  It can compile for Arduino when included in demo.ino, and it can also compile for
  * the native host when included in native/demo.cpp.  By default it implements a text mode ArduMon server supporting a
  * small catalog of demonstration commands, including commands to echo values of various types, as well as a countdown
- * timer (see AM_Timer.h).  It can also compile as a binary (not text) server with BINARY=true (see
+ * timer (see ArduMonTimer.h).  It can also compile as a binary (not text) server with BINARY defined (see
  * binary_server/binary_server.ino), and as a binary client with DEMO_CLIENT defined (see
- * binary_client/binary_client.ino).  The native server build can run in binary or text mode depending on a runtime
+ * binary_client/binary_client.ino).  The native build can run in binary or text server mode depending on a runtime
  * command line option, and it can run in binary client mode with the compile time flag -DDEMO_CLIENT.
  *
  * Copyright 2025 Marsette A. Vona (martyvona@gmail.com)
@@ -29,21 +29,17 @@
 
 #include <ArduMon.h>
 
-#include "AM_Timer.h"
+#include "ArduMonTimer.h"
 
 //builds text server demo by default
 //#define BASELINE_MEM //to check memory usage of boilerplate
-//#define BINARY true //to build binary server
+//#define BINARY //to build binary server
 //#define DEMO_CLIENT //to build binary client
 
 /* configure ArduMon **************************************************************************************************/
 
 #ifdef DEMO_CLIENT
-#define BINARY true
-#endif
-
-#ifndef BINARY
-#define BINARY false
+#define BINARY
 #endif
 
 //define BIN_USE_SERIAL0 to compile the binary demo (client or server) to use default serial port for binary comms
@@ -68,10 +64,9 @@
 #define SEND_BUF_SZ 128
 
 //it's possible to run the binary client or server with the binary communication on the default serial port
-//e.g. run the binary server this way and connect the Arduino by USB to a host
-//and then run the binary client natively on the host
+//e.g. run the binary server this way and connect the Arduino by USB to a host, then run binary client on the host
 //in this situation we need to disable the debug prints as they would also use the default serial port
-#if defined(ARDUINO) && BINARY && defined(BIN_USE_SERIAL0)
+#if defined(ARDUINO) && defined(BINARY) && defined(BIN_USE_SERIAL0)
 #define print(v) {}
 #define println(v) {}
 #else
@@ -85,7 +80,7 @@ using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, W
 
 #ifdef ARDUINO
 
-#if BINARY && !defined(BIN_USE_SERIAL0)
+#if defined(BINARY) && !defined(BIN_USE_SERIAL0)
 
 //connect BIN_TX_PIN of client Arduino to BIN_RX_PIN of server Arduino and vice-versa
 #ifdef ESP32
@@ -102,7 +97,7 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 //connect an Arduino by USB and run minicom or screen on USB serial port as described in README.md
 #define AM_STREAM Serial
 
-#endif //BINARY && !defined(BIN_USE_SERIAL0)
+#endif //defined(BINARY) && !defined(BIN_USE_SERIAL0)
 
 #endif //ARDUINO (AM_STREAM is defined externally in demo.cpp for native build)
 
@@ -110,16 +105,21 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 
 #ifndef BASELINE_MEM
 
-AM am(&AM_STREAM, BINARY); //the ArduMon instance
+//the ArduMon instance
+#ifdef BINARY
+AM am(&AM_STREAM, true);
+#else
+AM am(&AM_STREAM, false);
+#endif
 
 //this error handler wraps the default one and adds a total count
 uint16_t num_errors = 0;
-bool count_errors(AM &am) { if (num_errors < 65535) ++num_errors; return am.get_default_error_handler()(am); }
+bool count_errors(AM &am) { if (num_errors < 65535) ++num_errors; return am.getDefaultErrorHandler()(am); }
 
 bool demo_done = false; //terminate the demo when this flag is set
 
 #ifdef DEMO_CLIENT
-#include "binary_client.h" //most of the demo binary client here
+#include "binary_client.h" //most of the demo binary client is here
 #else
 #include "server_commands.h" //most of the demo server (both text and binary mode) here
 #endif
@@ -134,22 +134,22 @@ void setup() {
   Serial.begin(BAUD); //default hardware serial (i.e. usb port) is used in all cases
   //binary client and server can optionally also use a separate hardware or software serial port
   //for the binary connection between two Arduinos
-#if BINARY && !defined(BIN_USE_SERIAL0)
+#if defined(BINARY) && !defined(BIN_USE_SERIAL0)
 #ifdef ESP32
   AM_STREAM.begin(BAUD, SERIAL_8N1, BIN_RX_PIN, BIN_TX_PIN);
 #else
   AM_STREAM.begin(BAUD);
 #endif //ESP32
-#endif //BINARY && !defined(BIN_USE_SERIAL0)
+#endif //defined(BINARY) && !defined(BIN_USE_SERIAL0)
 #endif //ARDUINO
 
 #ifndef BASELINE_MEM
-  am.set_error_handler(count_errors);
+  am.setErrorHandler(count_errors);
 #ifdef DEMO_CLIENT
-  am.set_send_wait_ms(AM::ALWAYS_WAIT);
+  am.setSendWaitMS(AM::ALWAYS_WAIT);
 #else
-  am.set_txt_echo(true).set_txt_prompt(F("ArduMon>"));
-  add_cmds(); //text or binary server
+  am.setTextEcho(true).setTextPrompt(F("ArduMon>"));
+  addCmds(); //text or binary server
 #endif
 #endif //BASELINE_MEM
 }
@@ -166,7 +166,7 @@ void loop() {
 #ifndef DEMO_CLIENT
   timer.tick(am); //text or binary server: tick the timer
 #else //binary client: crank the state machine
-  BCStage *next; if (current_bc_stage && (next = current_bc_stage->update(am))) current_bc_stage = next;
+  BinaryClientStage *next; if (current_bc_stage && (next = current_bc_stage->update(am))) current_bc_stage = next;
 #endif //DEMO_CLIENT
 #endif //BASELINE_MEM
 }

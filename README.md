@@ -36,7 +36,38 @@ ArduMon also
 * is implemented in a single header file
 * allows multiple instances; e.g. a text CLI on `Serial0` for user interaction and a binary packet interface on `Serial1` to communicate with another Arduino.
 
-In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `endHandler()`.  It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `isBinaryMode()` or `isTextMode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The demo shows an example like this in the `ArduMonTimer` class.
+In many cases the same command handler can work in both binary and text mode: call the ArduMon `recv(...)` APIs to read command parameters and the `send(...)` APIs to write results, and finally `endHandler()`.  Here is a simple example:
+
+```
+#include <ArduMon.h>
+
+ArduMon<> am;
+
+float param = 0;
+
+bool setParam(ArduMon<> &am) {
+  //skip() jumps over the received command token "get_param"
+  //which otherwise would be the first received argument
+  return am.skip().recv(param).endHandler();
+}
+
+bool getParam(ArduMon<> &am) {
+  return am.send(param).endHandler();
+}
+
+void setup() {
+  Serial.begin(115200);
+  am.setDefaultErrorHandler().setTextEcho(true).setTextPrompt(F("ArduMon>"));
+  am.addCmd(getParam, F("get_param"));
+  am.addCmd(setParam, F("set_param"));
+}
+
+void loop() {
+  am.update();
+}
+```
+
+It is also possible to make a handler behave differently in text and binary mode, e.g. by checking the `isBinaryMode()` or `isTextMode()` ArduMon APIs.  For example, a handler could stream a text response with VT100 control codes to update a live display on the terminal, but in binary mode it could instead send a stream of binary packets.  The included demo shows an example like this in the `ArduMonTimer` class.
 
 ArduMon implements its own send and receive buffers, with sizes configurable at compile time, in addition to the serial send and recieve buffers built into the Arduino platform.  If an application is receive-only then the ArduMon send buffer can be disabled, and if an application is send-only the the ArduMon receive buffer can be disabled.
 

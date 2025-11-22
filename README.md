@@ -283,11 +283,11 @@ Compile the text demo for AVR, ESP32, and STM32:
 
 ```
 cd examples
-./build-avr.sh uno # or replace uno with nano or any board in arduino-cli board listall | grep arduino:avr
-./build-esp32.sh arduino:esp32:nano_nora
-./build-esp32.sh esp32:esp32:esp32 # for CYD; or replace with any board in arduino-cli board listall | grep esp32:esp32
-./build-stm32.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE # or any board in arduino-cli board listall | grep stm32
-./build-stm32.sh STMicroelectronics:stm32:Nucleo_64 NUCLEO_F411RE # or any part number in arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
+../scripts/build-avr.sh uno # or replace uno with nano or any board in arduino-cli board listall | grep arduino:avr
+../scripts/build-esp32.sh arduino:esp32:nano_nora
+../scripts/build-esp32.sh esp32:esp32:esp32 # for CYD; or replace with any board in arduino-cli board listall | grep esp32:esp32
+../scripts/build-stm32.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE # or any board in arduino-cli board listall | grep stm32
+../scripts/build-stm32.sh STMicroelectronics:stm32:Nucleo_64 NUCLEO_F411RE # or any part number in arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
 ```
 
 To compile the binary server or client demos, follow the same procedure but change to the `examples/demo/binary_server` or `examples/demo/binary_client` directory first and prefix the build commands with `../` instead of `./`.
@@ -306,7 +306,7 @@ Text demo:
 
 ```
 cd examples
-./upload-avr.sh arduino:avr:uno PORT
+../scripts/upload-avr.sh arduino:avr:uno PORT
 ```
 
 where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
@@ -321,7 +321,7 @@ Text demo:
 
 ```
 cd examples
-./upload-esp32.sh arduino:esp32:nano_nora PORT
+../scripts/upload-esp32.sh arduino:esp32:nano_nora PORT
 ```
 
 where `PORT` is e.g. `/dev/cu.usbserial-N` on OS X, `/dev/ttyUSBN` on Linux, `/dev/ttySN` on WSL, or `COMN` on Windows, and N is the serial port number shown in `arduino-cli board list`.
@@ -345,21 +345,21 @@ The procedures in this section upload the text demo; to upload the binary server
 
 ```
 cd examples
-./upload-stm32-dfu.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE
+../scripts/upload-stm32-dfu.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE
 ```
 
 If you are using one of the many [Nucleo](https://www.st.com/en/evaluation-tools/stm32-nucleo-boards.html) boards, DFU mode is not available (to my knowledge), but you can use either USB mass storage mode or serial wire debug (SWD).  Mass storage does not require STM32CubeProgrammer to be installed:
 
 ```
 cd examples
-./upload-stm32-mass-storage.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
+../scripts/upload-stm32-mass-storage.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
 ```
 
 SWD uploading *does* require STM32CubeProgrammer to be installed, but for Nucleo boards does *not* require a separate hardware dongle:
 
 ```
 cd examples
-./upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
+../scripts/upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB
 ```
 
 SWD mode can also be used on boards like the BlackPill, but requires a separate hardware dongle like like [ST-LINK V2](https://www.amazon.com/dp/B07SQV6VLZ) or [ST-LINK V3](https://www.dalbert.net/stlink-v3-minie).  You may want to check if the firmware on the dongle needs to be upgraded first with [this tool](https://www.st.com/en/development-tools/stsw-link007.html).
@@ -473,7 +473,7 @@ brew install c-kermit
 To connect with c-kermit:
 
 ```
-cd demo
+cd examples/scripts
 ./kermit.scr PORT BAUD
 ```
 

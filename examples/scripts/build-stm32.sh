@@ -1,5 +1,7 @@
 #!/bin/bash
 
+script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 if [ $# -lt 2 ]; then
   echo "USAGE: build-stm32.sh FQBN PNUM"
   echo "EXAMPLE: build-stm32.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE"
@@ -26,8 +28,6 @@ if [[ $2 == NUCLEO_* ]]; then USB=none; fi
 # STM32G431RB 128k flash 32k SRAM 64 pin
 # arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_32
 # arduino-cli board details --fqbn STMicroelectronics:stm32:Nucleo_64
-
-script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 fqbn=$1
 

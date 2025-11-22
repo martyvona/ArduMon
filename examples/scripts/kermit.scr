@@ -1,5 +1,5 @@
 #!/usr/bin/env kermit +
-# USAGE: ./kermit.scr PORT
+# USAGE: kermit.scr PORT
 set modem type none
 set carrier-watch off
 set line \%1

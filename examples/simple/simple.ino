@@ -26,7 +26,7 @@ ArduMon<> am;
 float param = 0;
 
 bool setParam(ArduMon<> &am) {
-  //skip() jumps over the received command token "get_param"
+  //skip() jumps over the command token "sfp"
   //which otherwise would be the first received argument
   return am.skip().recv(param).endHandler();
 }
@@ -38,8 +38,8 @@ bool getParam(ArduMon<> &am) {
 void setup() {
   Serial.begin(115200);
   am.setDefaultErrorHandler().setTextEcho(true).setTextPrompt(F("ArduMon>"));
-  am.addCmd(setParam, F("set_param"));
-  am.addCmd(getParam, F("get_param"));
+  am.addCmd(setParam, F("sfp")); //sfp is short for "set float param"
+  am.addCmd(getParam, F("gfp")); //"get float param"
 }
 
 void loop() {

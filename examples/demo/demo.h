@@ -130,7 +130,9 @@ bool demo_done = false; //terminate the demo when this flag is set
 
 void setup() {
 #ifdef ARDUINO
+#ifdef LED_BUILTIN //some generic FQBN, such as esp32:esp32:esp32 do not define LED_BUILTIN
   pinMode(LED_BUILTIN, OUTPUT);
+#endif
   Serial.begin(BAUD); //default hardware serial (i.e. usb port) is used in all cases
   //binary client and server can optionally also use a separate hardware or software serial port
   //for the binary connection between two Arduinos
@@ -158,7 +160,9 @@ void loop() {
 #ifndef BASELINE_MEM
 #ifdef ARDUINO
   if (demo_done) {
+#ifdef LED_BUILTIN
     digitalWrite(LED_BUILTIN, !num_errors || !((millis()/1000)%2)); //blink LED if there were errors, solid otherwise
+#endif
     return;
   }
 #endif

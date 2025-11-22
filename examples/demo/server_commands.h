@@ -78,7 +78,7 @@ template <typename T> bool echoInt(AM &am) {
   }
   const uint8_t fmt =
     width | (hex ? AM::FMT_HEX : 0) | (pad_zero ? AM::FMT_PAD_ZERO : 0) | (pad_right ? AM::FMT_PAD_RIGHT : 0);
-  if (!am.isBinaryMode() && pad_right && !pad_zero) return am.sendRaw(v, fmt).send('|').endHandler();
+  if (!am.isBinaryMode() && pad_right && !pad_zero) return am.sendRaw(v, fmt).sendChar('|').endHandler();
   else return am.send(v, fmt).endHandler();
 }
 
@@ -125,7 +125,7 @@ bool echoMultiple(AM &am) {
 
     const char type[4] = {format[i], format[i+1], format[i+2], '\0'};
 
-    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recvChar(v).send(v)) return false; }
+    if      (strcmp_P(type, F("chr")) == 0) { char v;        if (!am.recvChar(v).sendChar(v)) return false; }
     else if (strcmp_P(type, F("str")) == 0) { const char* v; if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("bll")) == 0) { bool v;        if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u08")) == 0) { uint8_t v;     if (!am.recv(v).send(v)) return false; }

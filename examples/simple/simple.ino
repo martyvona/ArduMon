@@ -38,8 +38,8 @@ bool getParam(ArduMon<> &am) {
 void setup() {
   Serial.begin(115200);
   am.setDefaultErrorHandler().setTextEcho(true).setTextPrompt(F("ArduMon>"));
-  am.addCmd(getParam, F("get_param"));
   am.addCmd(setParam, F("set_param"));
+  am.addCmd(getParam, F("get_param"));
 }
 
 void loop() {

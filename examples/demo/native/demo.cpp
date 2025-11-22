@@ -459,10 +459,10 @@ int main(int argc, const char **argv) {
         }
         while (demo_stream.in.size()) script_response += demo_stream.in.get();
         auto start = script_response.begin(), end = script_response.end();
-        while (start < end && (end = std::find(start, end, '\n')) != script_response.end()) {
+        if (start < end) end = std::find(start, end, '\n');
+        if (end != script_response.end()) {
           std::string response_line(start, ++end); //pop first response_line from beginning of script_response
           script_response.erase(start, end);
-          start = script_response.begin(); end = script_response.end();
           while (response_line.back() == '\n' || response_line.back() == '\r') response_line.pop_back();
           if (script_step == script.end() || script_step->first != "recv") {
             std::cerr << "ERROR: received extra line at script step " << step_num << ":\n"

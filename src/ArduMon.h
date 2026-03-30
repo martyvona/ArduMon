@@ -68,12 +68,12 @@ public:
 //send_buf_sz can also be set to 0 for an application that only receives
 //in binary mode the send buffer must be large enough to hold the largest outgoing packet (limited to 256 bytes)
 //
-//with_int64 = false saves ~200 bytes on AVR if you don't need (u)int64 support
-//with_float = false saves ~3k bytes on AVR if you don't need float or double support
-//with_double = false only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
+//!with_int64 saves ~2k on AVR if you don't need (u)int64 support
+//!with_float saves ~3k on AVR if you don't need float or double support
+//!with_double only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
 //
-//with_binary = false saves ~700 bytes on AVR
-//with_text = false saves ~8k bytes on AVR
+//!with_binary saves 0.8k on AVR
+//!with_text saves ~10k on AVR
 template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 128, uint16_t send_buf_sz = 128,
           bool with_int64 = true, bool with_float = true, bool with_double = true,
           bool with_binary = true, bool with_text = true>
@@ -628,23 +628,23 @@ public:
 
   //no ato[u]ll() or strto[u]ll() on AVR, and Arduino Stream::parseInt() doesn't handle 64 bits
   static bool parseInt64(const char *s, int64_t &v) {
-    return parseDec(s, BP(&v), true, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
+    return with_int64 && parseDec(s, BP(&v), true, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
   }
 
   static bool parseUInt64(const char *s, uint64_t &v) {
-    return parseDec(s, BP(&v), false, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
+    return with_int64 && parseDec(s, BP(&v), false, 8, static_cast<int64_t>(0), static_cast<uint64_t>(0));
   }
 
   //standard Arduino Print::print() APIs don't handle 64 bits
   //fmt is a bitmask of FMT_* flags with low 5 bits specifying minimum field width
   static bool printInt64(Stream *stream, const int64_t &v, const uint8_t fmt = 0) {
-    return writeDec(BP(&v), true, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
+    return with_int64 && writeDec(BP(&v), true, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
       while (*buf) stream->write(*buf++);
     });
   }
 
   static bool printUInt64(Stream *stream, const uint64_t &v, const uint8_t fmt = 0) {
-    return writeDec(BP(&v), false, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
+    return with_int64 && writeDec(BP(&v), false, 8, fmt, static_cast<uint64_t>(0), [&](const char *buf){
       while (*buf) stream->write(*buf++);
     });
   }
@@ -1025,7 +1025,7 @@ private:
     constexpr uint8_t max_bytes = with_int64 ? 8 : 4;
     if (num_bytes > max_bytes) return fail(Error::UNSUPPORTED);
 
-    if (num_bytes <= sizeof(long) || sizeof(long) <= max_bytes) {
+    if (num_bytes <= sizeof(long)) {
       long unsigned int ret = 0;
       char *e;
       const char *expected_e = s; while (*expected_e) ++expected_e;
@@ -1057,7 +1057,7 @@ private:
       return *this;
     }
 
-    //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
+    //sizeof(long) is 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
     //but just in case, handle the case that sizeof(long) < 4 as well, though compiler should usually optimize it out
     if (num_bytes <= 4 && sizeof(long) < 4) return parseDec<int32_t, uint32_t>(s, dest, sgnd, num_bytes);
 
@@ -1245,7 +1245,7 @@ private:
     //itoa() and utoa() could be used here if num_bytes <= sizeof(int)
     //but that increases progmem usage, probably not worth it
 
-    if (num_bytes <= sizeof(long) || sizeof(long) <= max_bytes) {
+    if (num_bytes <= sizeof(long)) {
       constexpr uint8_t buf_sz = 2 + (sizeof(long) > 4 ? 20 : 10);
       char buf[buf_sz];
       if (sgnd) {
@@ -1270,7 +1270,7 @@ private:
       return writeStr(buf);
     }
 
-    //sizeof(long) is typically 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
+    //sizeof(long) is 4 on both AVR and ESP32, so typically only get here if num_bytes == 8
     //but just in case handle sizeof(long) < 4 as well, though compiler should typically optimize it out
     if (num_bytes <= 4 && sizeof(long) < 4) return writeDec<uint32_t>(v, sgnd, num_bytes, fmt);
 

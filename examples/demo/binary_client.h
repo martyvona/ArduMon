@@ -204,16 +204,10 @@ BinaryClientStage_echo<uint16_t> eu16("eu16", 65535);
 BinaryClientStage_echo<int16_t> es16_l("es16", -32768), es16_h("es16", 32767);
 BinaryClientStage_echo<uint32_t> eu32("eu32", UINT32_MAX);
 BinaryClientStage_echo<int32_t> es32_l("es32", INT32_MIN), es32_h("es32", INT32_MAX);
-#ifdef WITH_INT64
 BinaryClientStage_echo<uint64_t> eu64("eu64", UINT64_MAX);
 BinaryClientStage_echo<int64_t> es64_l("es64", INT64_MIN), es64_h("es64", INT64_MAX);
-#endif
-#ifdef WITH_FLOAT
 BinaryClientStage_echo<float> ef_l("ef", -FLT_MAX), ef_h("ef", FLT_MAX);
-#ifdef WITH_DOUBLE
 BinaryClientStage_echo<double> ed_l("ed", -DBL_MAX), ed_h("ed", DBL_MAX);
-#endif
-#endif
 
 //BinaryClientStage instance to get the command codes for the ec (echo char) command
 BinaryClientStage_gcc bc_gcc_ec("ec");

@@ -102,16 +102,10 @@ bool echoU16(AM &am) { return echoInt<uint16_t>(am); }
 bool echoS16(AM &am) { return echoInt<int16_t>(am); }
 bool echoU32(AM &am) { return echoInt<uint32_t>(am); }
 bool echoS32(AM &am) { return echoInt<int32_t>(am); }
-#ifdef WITH_INT64
 bool echoU64(AM &am) { return echoInt<uint64_t>(am); }
 bool echoS64(AM &am) { return echoInt<int64_t>(am); }
-#endif
-#ifdef WITH_FLOAT
 bool echoFloat(AM &am) { return echoFloatOrDouble<float>(am); }
-#ifdef WITH_DOUBLE
 bool echoDouble(AM &am) { return echoFloatOrDouble<double>(am); }
-#endif
-#endif
 
 bool echoMultiple(AM &am) {
 
@@ -134,17 +128,11 @@ bool echoMultiple(AM &am) {
     else if (strcmp_P(type, F("i16")) == 0) { int16_t v;     if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("u32")) == 0) { uint32_t v;    if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("i32")) == 0) { int32_t v;     if (!am.recv(v).send(v)) return false; }
-#ifdef WITH_INT64
     else if (strcmp_P(type, F("u64")) == 0) { uint64_t v;    if (!am.recv(v).send(v)) return false; }
     else if (strcmp_P(type, F("i64")) == 0) { int64_t v;     if (!am.recv(v).send(v)) return false; }
-#endif
-#ifdef WITH_FLOAT
     else if (strcmp_P(type, F("f32")) == 0) { float v;       if (!am.recv(v).send(v)) return false; }
-#ifdef WITH_DOUBLE
     else if (strcmp_P(type, F("f64")) == 0) { double v;      if (!am.recv(v).send(v)) return false; }
-#endif
     else return false;
-#endif
   }
   return am.endHandler();
 }
@@ -181,16 +169,10 @@ void addCmds() {
   ADD_CMD(echoS16, "es16", "arg [hex [width [pad_zero [pad_right]]]] | echo int16");
   ADD_CMD(echoU32, "eu32", "arg [hex [width [pad_zero [pad_right]]]] | echo uint32");
   ADD_CMD(echoS32, "es32", "arg [hex [width [pad_zero [pad_right]]]] | echo int32");
-#ifdef WITH_INT64
   ADD_CMD(echoU64, "eu64", "arg [hex [width [pad_zero [pad_right]]]] | echo uint64");
   ADD_CMD(echoS64, "es64", "arg [hex [width [pad_zero [pad_right]]]] | echo int64");
-#endif
-#ifdef WITH_FLOAT
   ADD_CMD(echoFloat, "ef", "arg [scientific [precision [width]]] | echo float");
-#ifdef WITH_DOUBLE
   ADD_CMD(echoDouble, "ed", "arg [scientific [precision [width]]] | echo double");
-#endif
-#endif
   ADD_CMD(echoMultiple, "em", "format_string args... | echo multiple args based on format");
   ADD_CMD(setFloatParam, "sfp", "arg | set float param");
   ADD_CMD(getFloatParam, "gfp", "get float param");

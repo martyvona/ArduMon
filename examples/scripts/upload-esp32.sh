@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ $# -lt 2 ]; then
+if [[ $# -lt 2 ]]; then
   echo "USAGE: upload-esp32.sh FQBN PORT"
   echo "EXAMPLE: upload-esp32.sh esp32:esp32:esp32 /dev/cu.usb*"
   exit 1

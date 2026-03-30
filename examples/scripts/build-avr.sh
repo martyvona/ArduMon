@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-if [ $# -lt 1 ]; then
+if [[ $# -lt 1 ]]; then
   echo "USAGE: build-avr.sh BOARD [-d]"
   echo "EXAMPLE: build-avr.sh uno"
   echo "EXAMPLE: build-avr.sh nano"
@@ -10,7 +10,7 @@ if [ $# -lt 1 ]; then
 fi
 
 dbg=
-if [[ $# -gt 1 && $2 == "-d" ]]; then dbg=--optimize-for-debug; fi
+[[ $# -gt 1 && $2 == "-d" ]] && dbg=--optimize-for-debug
 
 fqbn=arduino:avr:$1 
 

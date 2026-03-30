@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ $# -lt 2 ]; then
+if [[ $# -lt 2 ]]; then
   echo "USAGE: upload-avr.sh BOARD PORT"
   echo "EXAMPLE: upload-avr.sh uno /dev/cu.usbserial-110"
   echo "EXAMPLE: upload-avr.sh nano /dev/cu.usbserial-110"

@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # https://arduino.stackexchange.com/questions/31190/detailed-analyse-of-memory-usage
 
-if [ $# -lt 1 ]; then
+if [[ $# -lt 1 ]]; then
   echo "USAGE: analyze-avr.sh BOARD"
   echo "EXAMPLE: analyze-avr.sh uno"
   echo "EXAMPLE: analyze-avr.sh nano"

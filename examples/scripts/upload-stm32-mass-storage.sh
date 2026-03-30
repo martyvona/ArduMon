@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ $# -lt 2 ]; then
+if [[ $# -lt 2 ]]; then
   echo "USAGE: upload-stm32-mass-storage.sh FQBN BOARD"
   echo "EXAMPLE: upload-stm32-mass-storage.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB"
   echo "EXAMPLE: upload-stm32-mass-storage.sh STMicroelectronics:stm32:Nucleo_64 NUCLEO_G431RB"

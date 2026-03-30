@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-if [ $# -lt 2 ]; then
+if [[ $# -lt 2 ]]; then
   echo "USAGE: upload-stm32-swd.sh FQBN BOARD"
   echo "EXAMPLE: upload-stm32-swd.sh STMicroelectronics:stm32:GenF4 BLACKPILL_F411CE"
   echo "EXAMPLE: upload-stm32-swd.sh STMicroelectronics:stm32:Nucleo_32 NUCLEO_G431KB"
@@ -10,7 +10,7 @@ if [ $# -lt 2 ]; then
 fi
 
 STM32_CUBE_OS_X_NEW=/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/Resources/bin
-if [[ -d $STM32_CUBE_OS_X_NEW ]]; then export PATH=$STM32_CUBE_OS_X_NEW:$PATH; fi
+[[ -d $STM32_CUBE_OS_X_NEW ]] && export PATH=$STM32_CUBE_OS_X_NEW:$PATH
 
 fqbn=$1
 board=$2

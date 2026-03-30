@@ -70,7 +70,7 @@ public:
 //
 //!with_int64 saves ~2k on AVR if you don't need (u)int64 support
 //!with_float saves ~3k on AVR if you don't need float or double support
-//!with_double only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
+//!with_double can only save program space if sizeof(double) > sizeof(float) which is not true by default on AVR
 //
 //!with_binary saves ~0.8k on AVR
 //!with_text saves ~10k on AVR

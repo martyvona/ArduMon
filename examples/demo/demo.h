@@ -46,9 +46,11 @@
 #define WITH_DOUBLE true
 #define WITH_BINARY true
 #define WITH_TEXT true
+#define WITH_EXT_BOOL true
 
 //specialize the ArduMon class template and call that AM
-using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT>;
+using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT,
+                   WITH_EXT_BOOL>;
 
 /* set up the ArduMon input stream AM_STREAM **************************************************************************/
 

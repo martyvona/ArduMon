@@ -72,11 +72,13 @@ public:
 //!with_float saves ~3k on AVR if you don't need float or double support
 //!with_double only saves program space if sizeof(double) > sizeof(float) which is not true by default on AVR
 //
-//!with_binary saves 0.8k on AVR
+//!with_binary saves ~0.8k on AVR
 //!with_text saves ~10k on AVR
+//
+//!with_ext_bool saves ~0.5k on AVR
 template <uint8_t max_num_cmds = 8, uint16_t recv_buf_sz = 128, uint16_t send_buf_sz = 128,
           bool with_int64 = true, bool with_float = true, bool with_double = true,
-          bool with_binary = true, bool with_text = true>
+          bool with_binary = true, bool with_text = true, bool with_ext_bool = true>
 class ArduMon {
 public:
 
@@ -415,6 +417,7 @@ public:
 
   //binary mode: receive a byte with value 0 (false) or nonzero (true)
   //text mode: receive "true", "false", "t", "f", "0", "1", "yes", "no", "y", "n" or uppercase equivalents
+  //if !with_ext_bool then only "t", "f", "T", "F" are supported
   ArduMon& recv(bool &v) { return parseBool(nextTok(1), &v); }
 
   //binary mode: receive an integer of the indicated size
@@ -471,17 +474,19 @@ public:
   ArduMon& sendRaw(const FSH* v, const int16_t len = -1) { return writeStr(CCS(v), true, false, len); }
 #endif
 
-  enum class BoolStyle : uint8_t { TRUE_FALSE, TF, ZERO_ONE, YES_NO, YN };
+  enum class BoolStyle : uint8_t { TF, TRUE_FALSE, ZERO_ONE, YES_NO, YN };
 
   //binary mode: send one byte with value 0 (false) or 1 (true)
   //text mode: send space separator if necessary, then send boolean value in indicated style
-  ArduMon& send(const bool v, const BoolStyle style = BoolStyle::TRUE_FALSE, const bool upper_case = false) {
+  //if !with_ext_bool then only BoolStyle::TF is supported
+  ArduMon& send(const bool v, const BoolStyle style = BoolStyle::TF, const bool upper_case = false) {
     return sendTextSep().sendRaw(v, style, upper_case);
   }
 
   //binary mode: send one byte with value 0 (false) or 1 (true)
   //text mode: send boolean value in indicated style
-  ArduMon& sendRaw(const bool v, const BoolStyle style = BoolStyle::TRUE_FALSE, const bool upper_case = false) {
+  //if !with_ext_bool then only BoolStyle::TF is supported
+  ArduMon& sendRaw(const bool v, const BoolStyle style = BoolStyle::TF, const bool upper_case = false) {
     return writeBool(v, style, upper_case);
   }
 
@@ -971,13 +976,16 @@ private:
     if (hasErr()) return *this;
     if (!v) return fail(Error::RECV_UNDERFLOW);
     if (binary_mode || !with_text) { *dst = *v != 0; return *this; }
+    if ((v[0] == 't' || v[0] == 'T') && !v[1]) { *dst = true; return *this; }
+    if ((v[0] == 'f' || v[0] == 'F') && !v[1]) { *dst = false; return *this; }
+    if (!with_ext_bool) return fail(Error::BAD_ARG);
     switch (*v++) {
-      case '0': if (*v == 0) { *dst = false; return *this; } else return fail(Error::BAD_ARG);
-      case '1': if (*v == 0) { *dst = true; return *this; } else return fail(Error::BAD_ARG);
-      case 't': case 'T': if (*v == 0) { *dst = true; return *this; } else return chkSfx(F("RUE"), true, v, dst);
-      case 'f': case 'F': if (*v == 0) { *dst = false; return *this; } else return chkSfx(F("ALSE"), false, v, dst);
+      case 't': case 'T': return chkSfx(F("RUE"), true, v, dst);
+      case 'f': case 'F': return chkSfx(F("ALSE"), false, v, dst);
       case 'y': case 'Y': if (*v == 0) { *dst = true; return *this; } else return chkSfx(F("ES"), true, v, dst);
       case 'n': case 'N': if (*v == 0) { *dst = false; return *this; } else return chkSfx(F("O"), false, v, dst);
+      case '0': if (*v == 0) { *dst = false; return *this; } else return fail(Error::BAD_ARG);
+      case '1': if (*v == 0) { *dst = true; return *this; } else return fail(Error::BAD_ARG);
       default: return fail(Error::BAD_ARG);
     }
   }
@@ -1190,9 +1198,10 @@ private:
   ArduMon& writeBool(const bool v, const BoolStyle style, const bool upper_case) {
     if (hasErr()) return *this;
     if (binary_mode || !with_text) return writeChar(v ? 1 : 0);
+    if (!with_ext_bool) return writeChar(upper_case ? (v ? 'T' : 'F') : (v ? 't' : 'f'));
     switch (style) {
-      case BoolStyle::TRUE_FALSE: return writeCaseStr(v ? F("TRUE") : F("FALSE"), !upper_case);
       case BoolStyle::TF: return writeCaseStr(v ? F("T") : F("F"), !upper_case);
+      case BoolStyle::TRUE_FALSE: return writeCaseStr(v ? F("TRUE") : F("FALSE"), !upper_case);
       case BoolStyle::ZERO_ONE: return writeChar(v ? '1' : '0');
       case BoolStyle::YES_NO: return writeCaseStr(v ? F("YES") : F("NO"), !upper_case);
       case BoolStyle::YN: return writeCaseStr(v ? F("Y") : F("N"), !upper_case);

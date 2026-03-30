@@ -56,8 +56,8 @@ bool echoBool(AM &am) {
     if (argc > 2) {
       const char *style_str;
       if (!am.recv(style_str)) return false;
-      if      (strcmp_P(style_str, F("true_false")) == 0) style = AM::BoolStyle::TRUE_FALSE;
-      else if (strcmp_P(style_str, F("tf"))         == 0) style = AM::BoolStyle::TF;
+      if      (strcmp_P(style_str, F("tf"))         == 0) style = AM::BoolStyle::TF;
+      else if (strcmp_P(style_str, F("true_false")) == 0) style = AM::BoolStyle::TRUE_FALSE;
       else if (strcmp_P(style_str, F("yes_no"))     == 0) style = AM::BoolStyle::YES_NO;
       else if (strcmp_P(style_str, F("yn"))         == 0) style = AM::BoolStyle::YN;
       else return false;

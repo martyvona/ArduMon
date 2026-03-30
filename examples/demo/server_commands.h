@@ -36,6 +36,8 @@ int strcmp_P(const char *a, const __FlashStringHelper *b) { return strcmp_P(a, r
 #endif
 #endif //on native builds instead use strcmp_P() shim defined in native/arduino_shims.h
 
+#include "ArduMonTimer.h"
+
 ArduMonTimer<AM> timer;
 
 bool help(AM &am) { return am.sendCmds().endHandler(); }

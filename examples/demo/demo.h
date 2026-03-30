@@ -27,16 +27,32 @@
  * OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include <ArduMon.h>
-
-#include "ArduMonTimer.h"
-
 //builds text server demo by default
 //#define BASELINE_MEM //to check memory usage of boilerplate
 //#define BINARY //to build binary server
 //#define DEMO_CLIENT //to build binary client
 
 /* configure ArduMon **************************************************************************************************/
+
+#include <ArduMon.h>
+
+#define MAX_CMDS 32
+
+#define RECV_BUF_SZ 128
+#define SEND_BUF_SZ 128
+
+#define WITH_INT64 true
+#define WITH_FLOAT true
+#define WITH_DOUBLE true
+#define WITH_BINARY true
+#define WITH_TEXT true
+
+//specialize the ArduMon class template and call that AM
+using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT>;
+
+/* set up the ArduMon input stream AM_STREAM **************************************************************************/
+
+#define BAUD 115200
 
 #ifdef DEMO_CLIENT
 #define BINARY
@@ -49,34 +65,6 @@
 #define BIN_RX_PIN 10
 #define BIN_TX_PIN 11
 #endif
-
-#define WITH_INT64 true
-#define WITH_FLOAT true
-#define WITH_DOUBLE true
-#define WITH_BINARY true
-#define WITH_TEXT true
-
-#define BAUD 115200
-
-#define MAX_CMDS 32
-
-#define RECV_BUF_SZ 128
-#define SEND_BUF_SZ 128
-
-//it's possible to run the binary client or server with the binary communication on the default serial port
-//e.g. run the binary server this way and connect the Arduino by USB to a host, then run binary client on the host
-//in this situation we need to disable the debug prints as they would also use the default serial port
-#if defined(ARDUINO) && defined(BINARY) && defined(BIN_USE_SERIAL0)
-#define print(v) {}
-#define println(v) {}
-#else
-#include "dbg_print.h"
-#endif
-
-//specialize the ArduMon class template and call that AM
-using AM = ArduMon<MAX_CMDS, RECV_BUF_SZ, SEND_BUF_SZ, WITH_INT64, WITH_FLOAT, WITH_DOUBLE, WITH_BINARY, WITH_TEXT>;
-
-/* set up the ArduMon input stream AM_STREAM **************************************************************************/
 
 #ifdef ARDUINO
 
@@ -100,6 +88,16 @@ SoftwareSerial AM_STREAM(BIN_RX_PIN, BIN_TX_PIN);
 #endif //defined(BINARY) && !defined(BIN_USE_SERIAL0)
 
 #endif //ARDUINO (AM_STREAM is defined externally in demo.cpp for native build)
+
+//it's possible to run the binary client or server with the binary communication on the default serial port
+//e.g. run the binary server this way and connect the Arduino by USB to a host, then run binary client on the host
+//in this situation we need to disable the debug prints as they would also use the default serial port
+#if defined(ARDUINO) && defined(BINARY) && defined(BIN_USE_SERIAL0)
+#define print(v) {}
+#define println(v) {}
+#else
+#include "dbg_print.h"
+#endif
 
 /* create the ArduMon instance am and other global state **************************************************************/
 
